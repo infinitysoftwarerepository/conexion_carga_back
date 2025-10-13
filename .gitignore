@@ -1,7 +1,20 @@
+# 🐍 Entorno virtual Python
 env/
-.venv/
+venv/
 __pycache__/
 *.pyc
+
+# 📦 Archivos de dependencias temporales
+*.log
+*.sqlite3
+.DS_Store
+
+# ⚙️ Configuración local
 .env
-.vscode/
 .idea/
+.vscode/
+
+# 🧪 Archivos de compilación
+*.egg-info/
+dist/
+build/
