@@ -1,49 +1,68 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from fastapi.middleware.cors import CORSMiddleware
+from uuid import UUID
 
-from .db import Base, engine, get_db
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+
 from . import crud, schemas, models
+from .db import Base, engine, get_db
 from .security import get_password_hash
 
-app = FastAPI(
-    title="Conexión Carga API",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-)
+# Crea tablas si hiciera falta
+Base.metadata.create_all(bind=engine)
 
-# CORS abierto en desarrollo
+app = FastAPI(title="Conexion Carga - Backend", openapi_url="/openapi.json")
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    allow_origins=["*"],  # ajusta si quieres restringir
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def on_startup():
-    Base.metadata.create_all(bind=engine)
 
+# ------------ Health -------------
 @app.get("/health")
 def health():
     return {"ok": True}
 
+
+# ------------ Users -------------
 @app.get("/api/users", response_model=list[schemas.UserOut])
 def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    users = crud.get_users(db, skip=skip, limit=limit)
-    return [schemas.UserOut.model_validate(u) for u in users]
+    return crud.get_users(db, skip=skip, limit=limit)
+
 
 @app.post("/api/users/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if user.password != user.confirm_password:
-        raise HTTPException(status_code=422, detail="Las contraseñas no coinciden")
-
-    if user.is_company and not user.company_name:
-        raise HTTPException(status_code=422, detail="company_name es obligatorio cuando is_company=true")
-
-    if crud.get_user_by_email(db, user.email):
-        raise HTTPException(status_code=409, detail="El email ya está registrado")
+    # Email único
+    existing = crud.get_user_by_email(db, user.email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
 
     pw_hash = get_password_hash(user.password)
     created = crud.create_user(db, user, pw_hash)
-    return schemas.UserOut.model_validate(created)
+    return created
+
+
+@app.put("/api/users/{user_id}", response_model=schemas.UserOut)
+def update_user(user_id: UUID, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+    # Si quiere cambiar el email, validar que no esté en uso por otro
+    if user.email:
+        existing = crud.get_user_by_email(db, user.email)
+        if existing and existing.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use by another user",
+            )
+
+    updated = crud.update_user(db, user_id, user)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    return updated
