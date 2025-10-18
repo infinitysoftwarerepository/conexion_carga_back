@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import List, Optional
 from uuid import UUID
 
@@ -67,3 +69,6 @@ def update_user(
     db.commit()
     db.refresh(u)
     return u
+
+
+
