@@ -36,7 +36,7 @@ def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str) ->
         is_company=user_in.is_company,
         company_name=user_in.company_name if user_in.is_company else None,
         password_hash=password_hash,
-        active=True,
+        active=False,
     )
     db.add(u)
     db.commit()
