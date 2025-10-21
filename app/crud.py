@@ -27,7 +27,12 @@ def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.email == email).first()
 
 
-def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str) -> models.User:
+def create_user(
+    db: Session,
+    user_in: schemas.UserCreate,
+    password_hash: str,
+    referred_by_id: Optional[UUID] = None,  # ⬅️ NUEVO parámetro
+) -> models.User:
     u = models.User(
         email=user_in.email,
         first_name=user_in.first_name,
@@ -37,6 +42,7 @@ def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str) ->
         company_name=user_in.company_name if user_in.is_company else None,
         password_hash=password_hash,
         active=False,
+        referred_by_id=referred_by_id,  # ⬅️ guardar referidor (UUID) si aplica
     )
     db.add(u)
     db.commit()
@@ -69,6 +75,3 @@ def update_user(
     db.commit()
     db.refresh(u)
     return u
-
-
-

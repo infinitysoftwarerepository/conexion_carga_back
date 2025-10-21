@@ -16,6 +16,8 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(min_length=8)
     confirm_password: str
+    # ⬇️ NUEVO: email del referidor (opcional)
+    referrer_email: Optional[EmailStr] = None
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -29,6 +31,8 @@ class UserUpdate(BaseModel):
 class UserOut(UserBase):
     id: UUID
     active: bool
+    # ⬇️ NUEVO: exponer puntos (útil para UI)
+    points: int = 0
 
     class Config:
         from_attributes = True  # pydantic v2 (antes orm_mode=True)

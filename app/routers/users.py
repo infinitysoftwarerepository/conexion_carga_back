@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app import crud, schemas
+from app import crud, schemas, models  # ⬅️ (añadido: models para buscar referidor por id)
 from app.db import get_db
 from app.security import get_password_hash, get_current_user
 from app.services.emailer import send_email
@@ -46,20 +46,36 @@ def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 
 @router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # email duplicado
     existing = crud.get_user_by_email(db, user.email)
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # validar contraseñas iguales
+    if user.password != user.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    # resolver referidor (OPCIONAL) -> referrer_email viene en schemas.UserCreate
+    ref_id = None
+    if user.referrer_email:
+        ref = crud.get_user_by_email(db, str(user.referrer_email))
+        if not ref:
+            raise HTTPException(status_code=400, detail="Referrer email does not exist")
+        ref_id = ref.id  # UUID del referidor
+
+    # crear usuario con hash y referidor
     pw_hash = get_password_hash(user.password)
-    created = crud.create_user(db, user, pw_hash)
+    created = crud.create_user(db, user, pw_hash, referred_by_id=ref_id)  # ⬅️ pasamos ref_id
     created.active = False
     db.add(created); db.commit(); db.refresh(created)
 
+    # cooldown para reenvío de código
     now = time.time()
     last = _last_send_epoch.get(user.email, 0.0)
     if now - last < EMAIL_RESEND_COOLDOWN_SECONDS:
         raise HTTPException(status_code=429, detail="Wait before resending the code")
 
+    # generar código y enviar email
     code = _gen_code(EMAIL_CODE_LENGTH)
     subject = "Verification code - Conexión Carga"
     text = f"Hola,\nTu código de verificación es: {code}\nVence en {EMAIL_CODE_TTL_MINUTES} minutos."
@@ -104,7 +120,17 @@ def verify_email(payload: VerifyIn, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    was_active = bool(user.active)
     user.active = True
+
+    # ⬇️ premiar referidor UNA vez (cuando el usuario se activa por primera vez)
+    if not was_active and user.referred_by_id and not getattr(user, "referral_rewarded", False):
+        # buscar referidor por UUID
+        ref = db.query(models.User).get(user.referred_by_id)
+        if ref:
+            ref.points = int(ref.points or 0) + 1
+            user.referral_rewarded = True
+
     db.add(user); db.commit(); db.refresh(user)
 
     _verif_store.pop(payload.email, None)

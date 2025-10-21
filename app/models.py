@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, func, text
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from .db import Base
 import uuid
@@ -25,3 +25,12 @@ class User(Base):
 
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
+
+    # ⬇️ NUEVO: sistema de referidos
+    points = Column(Integer, nullable=False, server_default=text("0"))
+    referred_by_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("conexion_carga.users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
