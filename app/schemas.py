@@ -4,6 +4,9 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
 
+# ===== Carga (nuevo) =====
+from datetime import datetime
+
 # === User (DB → API) ===
 class UserBase(BaseModel):
     email: EmailStr
@@ -31,8 +34,37 @@ class UserUpdate(BaseModel):
 class UserOut(UserBase):
     id: UUID
     active: bool
-    # ⬇️ NUEVO: exponer puntos (útil para UI)
+    # ⬇️ NUEVO: exponer puntos e is_premium
     points: int = 0
+    is_premium: bool = False
 
     class Config:
         from_attributes = True  # pydantic v2 (antes orm_mode=True)
+
+
+
+class CargoBase(BaseModel):
+    empresa_id: Optional[UUID] = None
+    origen: str
+    destino: str
+    tipo_carga: str
+    peso: float
+    valor: int
+    conductor: Optional[str] = None
+    vehiculo_id: Optional[str] = None
+    fecha_salida: datetime
+    fecha_llegada_estimada: Optional[datetime] = None
+    premium_trip: bool = False   # ⬅ por defecto false
+
+class CargoCreate(CargoBase):
+    pass  # todo lo necesario llega del front
+
+class CargoOut(CargoBase):
+    id: UUID
+    comercial_id: UUID
+    active: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

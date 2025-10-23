@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .security import get_password_hash
 
+from . import models, schemas
+from sqlalchemy.orm import Session
+
 
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
     return (
@@ -75,3 +78,31 @@ def update_user(
     db.commit()
     db.refresh(u)
     return u
+
+
+
+# ---- Cargas (nuevo) ----
+def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
+    obj = models.Cargo(
+        empresa_id=data.empresa_id,
+        origen=data.origen,
+        destino=data.destino,
+        tipo_carga=data.tipo_carga,
+        peso=data.peso,
+        valor=data.valor,
+        comercial_id=comercial_id,
+        conductor=data.conductor,
+        vehiculo_id=data.vehiculo_id,
+        fecha_salida=data.fecha_salida,
+        fecha_llegada_estimada=data.fecha_llegada_estimada,
+        premium_trip=data.premium_trip,
+        active=True,
+    )
+    db.add(obj); db.commit(); db.refresh(obj)
+    return obj
+
+def get_my_cargas(db: Session, comercial_id, skip=0, limit=100):
+    return (db.query(models.Cargo)
+              .filter(models.Cargo.comercial_id == comercial_id)
+              .order_by(models.Cargo.created_at.desc())
+              .offset(skip).limit(limit).all())
