@@ -1,10 +1,9 @@
 # app/routers/loads.py
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
-from uuid import UUID
 
 from app.db import get_db
-from app.security import get_current_user   # debe devolver el usuario autenticado
+from app.security import get_current_user
 from app import crud, schemas
 
 router = APIRouter(prefix="/api/loads", tags=["Loads"])
@@ -13,7 +12,6 @@ router = APIRouter(prefix="/api/loads", tags=["Loads"])
 def create_load(payload: schemas.CargoCreate,
                 db: Session = Depends(get_db),
                 current = Depends(get_current_user)):
-    # comercial_id = usuario logueado
     return crud.create_cargo(db, payload, comercial_id=current.id)
 
 @router.get("/mine", response_model=list[schemas.CargoOut])

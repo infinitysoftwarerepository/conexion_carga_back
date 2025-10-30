@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
-
-# ===== Carga (nuevo) =====
 from datetime import datetime
 
-# === User (DB → API) ===
+# =======================
+# USERS
+# =======================
 class UserBase(BaseModel):
     email: EmailStr
     first_name: str = Field(min_length=1)
@@ -19,7 +19,6 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(min_length=8)
     confirm_password: str
-    # ⬇️ NUEVO: email del referidor (opcional)
     referrer_email: Optional[EmailStr] = None
 
 class UserUpdate(BaseModel):
@@ -34,35 +33,46 @@ class UserUpdate(BaseModel):
 class UserOut(UserBase):
     id: UUID
     active: bool
-    # ⬇️ NUEVO: exponer puntos e is_premium
     points: int = 0
     is_premium: bool = False
 
     class Config:
-        from_attributes = True  # pydantic v2 (antes orm_mode=True)
+        from_attributes = True  # pydantic v2
 
+# =======================
+# AUTH
+# =======================
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
 
+class TokenOut(BaseModel):
+    token: str
 
+# =======================
+# CARGA
+# =======================
 class CargoBase(BaseModel):
     empresa_id: Optional[UUID] = None
     origen: str
     destino: str
-    tipo_carga: str
+    tipo_carga: str              # <-- ahora coincide con columna en BD
     peso: float
     valor: int
     conductor: Optional[str] = None
     vehiculo_id: Optional[str] = None
+    tipo_vehiculo: Optional[str] = None  # <-- agregado para recibirlo del front
     fecha_salida: datetime
     fecha_llegada_estimada: Optional[datetime] = None
-    premium_trip: bool = False   # ⬅ por defecto false
+    premium_trip: bool = False
 
 class CargoCreate(CargoBase):
-    pass  # todo lo necesario llega del front
+    pass
 
 class CargoOut(CargoBase):
     id: UUID
     comercial_id: UUID
-    active: bool = True
+    activo: bool                 # <-- coincide con nombre real en BD
     created_at: datetime
     updated_at: datetime
 

@@ -2,6 +2,7 @@
 """
 Entrypoint principal: inicializa DB, CORS y monta routers.
 """
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,9 +14,13 @@ from app.routers import loads
 # Inicializar tablas
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Conexión Carga - Backend", openapi_url="/openapi.json")
+app = FastAPI(
+    title="Conexión Carga - Backend",
+    openapi_url="/openapi.json",
+    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el Bearer en /docs
+)
 
-# CORS: ajusta dominios en producción
+# CORS (mantenemos abierto como lo tenías cuando te funcionaba)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

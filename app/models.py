@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, func, text
+# app/models.py
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from .db import Base
 import uuid
@@ -10,8 +11,8 @@ class User(Base):
     id = Column(
         UUID(as_uuid=True),
         primary_key=True,
-        default=uuid.uuid4,                         # default en la app
-        server_default=text("uuid_generate_v4()"),  # default en la BD
+        default=uuid.uuid4,
+        server_default=text("uuid_generate_v4()"),
         nullable=False,
     )
     email = Column(String(255), unique=True, index=True, nullable=False)
@@ -23,13 +24,15 @@ class User(Base):
     is_company = Column(Boolean, nullable=False, server_default=text("false"))
     company_name = Column(String(255), nullable=True)
 
-    # <-- NUEVO: flag de suscripción (default false en BD)
+    # Suscripción
     is_premium = Column(Boolean, nullable=False, server_default=text("false"))
 
+    # ⚠️ En la tabla es 'active' (no 'activo')
     active = Column(Boolean, nullable=False, server_default=text("true"))
+
     created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
 
-    # ⬇️ NUEVO: sistema de referidos
+    # Referidos
     points = Column(Integer, nullable=False, server_default=text("0"))
     referred_by_id = Column(
         UUID(as_uuid=True),
@@ -37,14 +40,11 @@ class User(Base):
         nullable=True,
     )
     referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
-# --- Carga (nuevo) ---
+
+
 class Cargo(Base):
     __tablename__ = "carga"
     __table_args__ = {"schema": "conexion_carga"}
-
-    from sqlalchemy import Column, String, Boolean, DateTime, Integer, Numeric
-    from sqlalchemy.dialects.postgresql import UUID
-    import uuid
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     empresa_id = Column(UUID(as_uuid=True), nullable=True)
@@ -53,19 +53,29 @@ class Cargo(Base):
     destino = Column(String, nullable=False)
     tipo_carga = Column(String, nullable=False)
 
-    peso = Column(Numeric(10,2), nullable=False)
+    peso = Column(Numeric(10, 2), nullable=False)
     valor = Column(Integer, nullable=False)
 
-    comercial_id = Column(UUID(as_uuid=True), ForeignKey("conexion_carga.users.id", ondelete="CASCADE"), nullable=False)
+    comercial_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("conexion_carga.users.id", ondelete="CASCADE"),
+        nullable=False
+    )
 
     conductor = Column(String, nullable=True)
     vehiculo_id = Column(String, nullable=True)
+    tipo_vehiculo = Column(String, nullable=True)   # si lo estás usando desde el front
 
     fecha_salida = Column(DateTime, nullable=False)
     fecha_llegada_estimada = Column(DateTime, nullable=True)
 
-    active = Column(Boolean, nullable=False, server_default=text("true"))
+    # En 'carga' la columna real sí es 'activo'
+    activo = Column(Boolean, nullable=False, server_default=text("true"))
+
     premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # (Opcional) duración publicada si ya la agregaste:
+    # duracion_publicado = Column(Integer, nullable=True)  # minutos, opcional
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
