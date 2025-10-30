@@ -8,6 +8,7 @@ from datetime import datetime
 # =======================
 # USERS
 # =======================
+
 class UserBase(BaseModel):
     email: EmailStr
     first_name: str = Field(min_length=1)
@@ -37,33 +38,45 @@ class UserOut(UserBase):
     is_premium: bool = False
 
     class Config:
-        from_attributes = True  # pydantic v2
+        from_attributes = True  # Pydantic v2
 
 # =======================
 # AUTH
 # =======================
+
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
 
 class TokenOut(BaseModel):
-    token: str
+    access_token: str
+    token_type: str = "bearer"
+    user: Optional[UserOut] = None
 
 # =======================
 # CARGA
 # =======================
+
 class CargoBase(BaseModel):
     empresa_id: Optional[UUID] = None
     origen: str
     destino: str
-    tipo_carga: str              # <-- ahora coincide con columna en BD
+    tipo_carga: str
     peso: float
     valor: int
+
+    # Campos opcionales que manda el front
+    comercial: Optional[str] = None
+    contacto: Optional[str] = None
+    observaciones: Optional[str] = None
+
     conductor: Optional[str] = None
     vehiculo_id: Optional[str] = None
-    tipo_vehiculo: Optional[str] = None  # <-- agregado para recibirlo del front
+    tipo_vehiculo: Optional[str] = None
+
     fecha_salida: datetime
     fecha_llegada_estimada: Optional[datetime] = None
+
     premium_trip: bool = False
 
 class CargoCreate(CargoBase):
@@ -72,7 +85,7 @@ class CargoCreate(CargoBase):
 class CargoOut(CargoBase):
     id: UUID
     comercial_id: UUID
-    activo: bool                 # <-- coincide con nombre real en BD
+    activo: bool
     created_at: datetime
     updated_at: datetime
 
