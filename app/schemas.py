@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
 from datetime import datetime
 
-# ========= USERS (igual) =========
+# ========= USERS =========
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -37,7 +37,7 @@ class UserOut(UserBase):
     class Config:
         from_attributes = True
 
-# ========= AUTH (igual) =========
+# ========= AUTH =========
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
@@ -55,16 +55,18 @@ class CargoBase(BaseModel):
     tipo_carga: str
     peso: float
     valor: int
-    # campos del form (opcionales)
+    # extras
     comercial: Optional[str] = None
     contacto: Optional[str] = None
     observaciones: Optional[str] = None
     conductor: Optional[str] = None
     vehiculo_id: Optional[str] = None
     tipo_vehiculo: Optional[str] = None
-    fecha_salida: datetime
-    fecha_llegada_estimada: Optional[datetime] = None
-    premium_trip: bool = False
+
+    # ⏱️ duración en horas que recibimos del front (6/12/24, default 24)
+    duration_hours: int = Field(default=24, ge=1, le=168)
+
+    # ❌ Eliminadas: fechas
 
 class CargoCreate(CargoBase):
     pass
@@ -72,9 +74,20 @@ class CargoCreate(CargoBase):
 class CargoOut(CargoBase):
     id: UUID
     comercial_id: UUID
-    estado: str                   # <- YA existe en tu tabla
+    estado: str
     activo: bool
     created_at: datetime
     updated_at: datetime
     class Config:
         from_attributes = True
+
+class CatalogoIn(BaseModel):
+    nombre: str
+
+class CatalogoOut(BaseModel):
+    id: int
+    nombre: str
+    activo: bool
+
+    class Config:
+        orm_mode = True

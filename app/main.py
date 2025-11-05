@@ -7,9 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import Base, engine
-from app.routers import users
-from app.routers import auth
-from app.routers import loads
+from app.routers import users, auth, loads, catalogos  # 👈 nuevo router importado
 
 # Inicializar tablas
 Base.metadata.create_all(bind=engine)
@@ -20,7 +18,7 @@ app = FastAPI(
     swagger_ui_parameters={"persistAuthorization": True},  # recuerda el Bearer en /docs
 )
 
-# CORS (mantenemos abierto como lo tenías cuando te funcionaba)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,3 +35,4 @@ def health():
 app.include_router(users.router)
 app.include_router(auth.router)
 app.include_router(loads.router)
+app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_

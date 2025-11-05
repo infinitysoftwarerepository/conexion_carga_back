@@ -2,13 +2,14 @@
 from __future__ import annotations
 from typing import List, Optional
 from uuid import UUID
+from datetime import timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
 from . import models, schemas
 from .security import get_password_hash
 
-# ---------- USERS (igual) ----------
+# ---------- USERS ----------
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
     return (
         db.query(models.User)
@@ -73,11 +74,11 @@ def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
         conductor=data.conductor,
         vehiculo_id=data.vehiculo_id,
         tipo_vehiculo=data.tipo_vehiculo,
-        fecha_salida=data.fecha_salida,
-        fecha_llegada_estimada=data.fecha_llegada_estimada,
-        activo=True,   # en BD existe y queda True
-        # estado: usa default 'publicado' de tu BD
-        premium_trip=data.premium_trip,
+        # ❌ fechas removidas
+        # ⏱️ guardar como INTERVAL
+        duracion_publicacion=timedelta(hours=int(data.duration_hours or 24)),
+        activo=True,
+        premium_trip=data.premium_trip if hasattr(data, "premium_trip") else False,
     )
     db.add(obj); db.commit(); db.refresh(obj)
     return obj

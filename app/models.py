@@ -1,5 +1,5 @@
 # app/models.py
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text, Interval
 from sqlalchemy.dialects.postgresql import UUID
 from .db import Base
 import uuid
@@ -54,13 +54,40 @@ class Cargo(Base):
     vehiculo_id   = Column(String, nullable=True)
     tipo_vehiculo = Column(String, nullable=True)
 
-    fecha_salida = Column(DateTime, nullable=False)
-    fecha_llegada_estimada = Column(DateTime, nullable=True)
+    # ↓ Fechas eliminadas (ver migración SQL)
+    # fecha_salida
+    # fecha_llegada_estimada
 
-    estado = Column(String, nullable=False, server_default=text("'publicado'"))  # << mapeo
-
+    estado = Column(String, nullable=False, server_default=text("'publicado'"))
     activo = Column(Boolean, nullable=False, server_default=text("true"))
     premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
 
+    # Nuevo: cuánto tiempo permanece publicado (se mapea desde horas -> timedelta)
+    duracion_publicacion = Column(Interval, nullable=True, server_default=text("'24 hours'::interval"))
+
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
+
+class Municipio(Base):
+    __tablename__ = "municipio"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(255), unique=True, nullable=False)
+    activo = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+class TipoCarga(Base):
+    __tablename__ = "tipo_carga"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(255), unique=True, nullable=False)
+    activo = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+class TipoVehiculo(Base):
+    __tablename__ = "tipo_vehiculo"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(255), unique=True, nullable=False)
+    activo = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
