@@ -1,4 +1,4 @@
-# Snapshot generado: 2025-11-05T04:29:33+00:00
+# Snapshot generado: 2025-11-07T21:30:51+00:00
 
 ## Árbol de directorios (app/)
 
@@ -19,118 +19,117 @@
      2	from __future__ import annotations
      3	from typing import List, Optional
      4	from uuid import UUID
-     5	from sqlalchemy.orm import Session
-     6	from sqlalchemy import func, or_
-     7	
-     8	from . import models, schemas
-     9	from .security import get_password_hash
-    10	
-    11	# ---------- USERS (igual) ----------
-    12	def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
-    13	    return (
-    14	        db.query(models.User)
-    15	        .order_by(models.User.created_at.desc())
-    16	        .offset(skip).limit(limit).all()
-    17	    )
-    18	
-    19	def get_user(db: Session, user_id: UUID) -> Optional[models.User]:
-    20	    return db.query(models.User).filter(models.User.id == user_id).first()
-    21	
-    22	def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
-    23	    return (
-    24	        db.query(models.User)
-    25	        .filter(func.lower(models.User.email) == func.lower(email.strip()))
-    26	        .first()
-    27	    )
-    28	
-    29	def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str,
-    30	                referred_by_id: Optional[UUID] = None) -> models.User:
-    31	    u = models.User(
-    32	        email=user_in.email.strip(),
-    33	        first_name=user_in.first_name,
-    34	        last_name=user_in.last_name,
-    35	        phone=user_in.phone,
-    36	        is_company=user_in.is_company,
-    37	        company_name=user_in.company_name if user_in.is_company else None,
-    38	        password_hash=password_hash,
-    39	        active=False,
-    40	        referred_by_id=referred_by_id,
-    41	    )
-    42	    db.add(u); db.commit(); db.refresh(u)
-    43	    return u
-    44	
-    45	def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Optional[models.User]:
-    46	    u = get_user(db, user_id)
-    47	    if not u:
-    48	        return None
-    49	    for attr in ("email","first_name","last_name","phone","is_company","company_name"):
-    50	        val = getattr(user_in, attr, None)
-    51	        if val is not None:
-    52	            setattr(u, attr, val)
-    53	    if user_in.is_company is False:
-    54	        u.company_name = None
-    55	    if user_in.password:
-    56	        u.password_hash = get_password_hash(user_in.password)
-    57	    db.add(u); db.commit(); db.refresh(u)
-    58	    return u
-    59	
-    60	# ---------- CARGAS ----------
-    61	def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
-    62	    obj = models.Cargo(
-    63	        empresa_id=data.empresa_id,
-    64	        origen=data.origen,
-    65	        destino=data.destino,
-    66	        tipo_carga=data.tipo_carga,
-    67	        peso=data.peso,
-    68	        valor=data.valor,
-    69	        comercial_id=comercial_id,
-    70	        comercial=data.comercial,
-    71	        contacto=data.contacto,
-    72	        observaciones=data.observaciones,
-    73	        conductor=data.conductor,
-    74	        vehiculo_id=data.vehiculo_id,
-    75	        tipo_vehiculo=data.tipo_vehiculo,
-    76	        fecha_salida=data.fecha_salida,
-    77	        fecha_llegada_estimada=data.fecha_llegada_estimada,
-    78	        activo=True,   # en BD existe y queda True
-    79	        # estado: usa default 'publicado' de tu BD
-    80	        premium_trip=data.premium_trip,
-    81	    )
-    82	    db.add(obj); db.commit(); db.refresh(obj)
-    83	    return obj
-    84	
-    85	def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:
-    86	    return db.query(models.Cargo).filter(models.Cargo.id == cargo_id).first()
-    87	
-    88	def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
-    89	    return (
-    90	        db.query(models.Cargo)
-    91	        .filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
-    92	        .order_by(models.Cargo.created_at.desc())
-    93	        .offset(skip).limit(limit).all()
-    94	    )
-    95	
-    96	def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=100):
-    97	    q = db.query(models.Cargo).filter(models.Cargo.comercial_id == comercial_id)
-    98	    if status == "published":
-    99	        q = q.filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
-   100	    elif status == "expired":
-   101	        q = q.filter(or_(models.Cargo.estado == "caducado",
-   102	                         models.Cargo.estado == "eliminado",
-   103	                         models.Cargo.activo.is_(False)))
-   104	    return (
-   105	        q.order_by(models.Cargo.created_at.desc())
-   106	         .offset(skip).limit(limit).all()
-   107	    )
-   108	
-   109	def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models.Cargo]:
-   110	    c = get_cargo(db, cargo_id)
-   111	    if not c or c.comercial_id != owner_id:
-   112	        return None
-   113	    c.estado = "caducado"
-   114	    c.activo = False
-   115	    db.add(c); db.commit(); db.refresh(c)
-   116	    return c
+     5	from datetime import timedelta
+     6	from sqlalchemy.orm import Session
+     7	from sqlalchemy import func, or_
+     8	
+     9	from . import models, schemas
+    10	from .security import get_password_hash
+    11	
+    12	# ---------- USERS ----------
+    13	def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
+    14	    return (
+    15	        db.query(models.User)
+    16	        .order_by(models.User.created_at.desc())
+    17	        .offset(skip).limit(limit).all()
+    18	    )
+    19	
+    20	def get_user(db: Session, user_id: UUID) -> Optional[models.User]:
+    21	    return db.query(models.User).filter(models.User.id == user_id).first()
+    22	
+    23	def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    24	    return (
+    25	        db.query(models.User)
+    26	        .filter(func.lower(models.User.email) == func.lower(email.strip()))
+    27	        .first()
+    28	    )
+    29	
+    30	def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str,
+    31	                referred_by_id: Optional[UUID] = None) -> models.User:
+    32	    u = models.User(
+    33	        email=user_in.email.strip(),
+    34	        first_name=user_in.first_name,
+    35	        last_name=user_in.last_name,
+    36	        phone=user_in.phone,
+    37	        is_company=user_in.is_company,
+    38	        company_name=user_in.company_name if user_in.is_company else None,
+    39	        password_hash=password_hash,
+    40	        active=False,
+    41	        referred_by_id=referred_by_id,
+    42	    )
+    43	    db.add(u); db.commit(); db.refresh(u)
+    44	    return u
+    45	
+    46	def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Optional[models.User]:
+    47	    u = get_user(db, user_id)
+    48	    if not u:
+    49	        return None
+    50	    for attr in ("email","first_name","last_name","phone","is_company","company_name"):
+    51	        val = getattr(user_in, attr, None)
+    52	        if val is not None:
+    53	            setattr(u, attr, val)
+    54	    if user_in.is_company is False:
+    55	        u.company_name = None
+    56	    if user_in.password:
+    57	        u.password_hash = get_password_hash(user_in.password)
+    58	    db.add(u); db.commit(); db.refresh(u)
+    59	    return u
+    60	
+    61	# ---------- CARGAS ----------
+    62	def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
+    63	    obj = models.Cargo(
+    64	        empresa_id=data.empresa_id,
+    65	        origen=data.origen,
+    66	        destino=data.destino,
+    67	        tipo_carga=data.tipo_carga,
+    68	        peso=data.peso,
+    69	        valor=data.valor,
+    70	        comercial_id=comercial_id,
+    71	        comercial=data.comercial,
+    72	        contacto=data.contacto,
+    73	        observaciones=data.observaciones,
+    74	        conductor=data.conductor,
+    75	        # vehiculo_id=data.vehiculo_id,  # ❌ ELIMINADO
+    76	        tipo_vehiculo=data.tipo_vehiculo,
+    77	        duracion_publicacion=timedelta(hours=int(data.duration_hours or 24)),
+    78	        activo=True,
+    79	        premium_trip=getattr(data, "premium_trip", False),
+    80	    )
+    81	    db.add(obj); db.commit(); db.refresh(obj)
+    82	    return obj
+    83	
+    84	def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:
+    85	    return db.query(models.Cargo).filter(models.Cargo.id == cargo_id).first()
+    86	
+    87	def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
+    88	    return (
+    89	        db.query(models.Cargo)
+    90	        .filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
+    91	        .order_by(models.Cargo.created_at.desc())
+    92	        .offset(skip).limit(limit).all()
+    93	    )
+    94	
+    95	def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=100):
+    96	    q = db.query(models.Cargo).filter(models.Cargo.comercial_id == comercial_id)
+    97	    if status == "published":
+    98	        q = q.filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
+    99	    elif status == "expired":
+   100	        q = q.filter(or_(models.Cargo.estado == "caducado",
+   101	                         models.Cargo.estado == "eliminado",
+   102	                         models.Cargo.activo.is_(False)))
+   103	    return (
+   104	        q.order_by(models.Cargo.created_at.desc())
+   105	         .offset(skip).limit(limit).all()
+   106	    )
+   107	
+   108	def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models.Cargo]:
+   109	    c = get_cargo(db, cargo_id)
+   110	    if not c or c.comercial_id != owner_id:
+   111	        return None
+   112	    c.estado = "caducado"
+   113	    c.activo = False
+   114	    db.add(c); db.commit(); db.refresh(c)
+   115	    return c
 -----8<----- END FILE: app/crud.py -----
 
 -----8<----- FILE: app/db.py -----
@@ -215,41 +214,40 @@
      7	from fastapi.middleware.cors import CORSMiddleware
      8	
      9	from app.db import Base, engine
-    10	from app.routers import users
-    11	from app.routers import auth
-    12	from app.routers import loads
-    13	
-    14	# Inicializar tablas
-    15	Base.metadata.create_all(bind=engine)
-    16	
-    17	app = FastAPI(
-    18	    title="Conexión Carga - Backend",
-    19	    openapi_url="/openapi.json",
-    20	    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el Bearer en /docs
-    21	)
-    22	
-    23	# CORS (mantenemos abierto como lo tenías cuando te funcionaba)
-    24	app.add_middleware(
-    25	    CORSMiddleware,
-    26	    allow_origins=["*"],
-    27	    allow_credentials=True,
-    28	    allow_methods=["*"],
-    29	    allow_headers=["*"],
-    30	)
-    31	
-    32	@app.get("/health")
-    33	def health():
-    34	    return {"ok": True, "message": "API running"}
-    35	
-    36	# Montar routers
-    37	app.include_router(users.router)
-    38	app.include_router(auth.router)
-    39	app.include_router(loads.router)
+    10	from app.routers import users, auth, loads, catalogos  # 👈 nuevo router importado
+    11	
+    12	# Inicializar tablas
+    13	Base.metadata.create_all(bind=engine)
+    14	
+    15	app = FastAPI(
+    16	    title="Conexión Carga - Backend",
+    17	    openapi_url="/openapi.json",
+    18	    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el Bearer en /docs
+    19	)
+    20	
+    21	# CORS
+    22	app.add_middleware(
+    23	    CORSMiddleware,
+    24	    allow_origins=["*"],
+    25	    allow_credentials=True,
+    26	    allow_methods=["*"],
+    27	    allow_headers=["*"],
+    28	)
+    29	
+    30	@app.get("/health")
+    31	def health():
+    32	    return {"ok": True, "message": "API running"}
+    33	
+    34	# Montar routers
+    35	app.include_router(users.router)
+    36	app.include_router(auth.router)
+    37	app.include_router(loads.router)
+    38	app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_
 -----8<----- END FILE: app/main.py -----
 
 -----8<----- FILE: app/models.py -----
      1	# app/models.py
-     2	from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text
+     2	from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text, Interval
      3	from sqlalchemy.dialects.postgresql import UUID
      4	from .db import Base
      5	import uuid
@@ -301,19 +299,22 @@
     51	    observaciones = Column(String, nullable=True)
     52	
     53	    conductor = Column(String, nullable=True)
-    54	    vehiculo_id   = Column(String, nullable=True)
+    54	    # vehiculo_id = Column(String, nullable=True)  # ❌ ELIMINADO
     55	    tipo_vehiculo = Column(String, nullable=True)
     56	
-    57	    fecha_salida = Column(DateTime, nullable=False)
-    58	    fecha_llegada_estimada = Column(DateTime, nullable=True)
-    59	
-    60	    estado = Column(String, nullable=False, server_default=text("'publicado'"))  # << mapeo
-    61	
+    57	    # ↓ Fechas eliminadas previamente
+    58	    # fecha_salida
+    59	    # fecha_llegada_estimada
+    60	
+    61	    estado = Column(String, nullable=False, server_default=text("'publicado'"))
     62	    activo = Column(Boolean, nullable=False, server_default=text("true"))
     63	    premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
     64	
-    65	    created_at = Column(DateTime, nullable=False, server_default=func.now())
-    66	    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+    65	    # horas -> interval
+    66	    duracion_publicacion = Column(Interval, nullable=True, server_default=text("'24 hours'::interval"))
+    67	
+    68	    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    69	    updated_at = Column(DateTime, nullable=False, server_default=func.now())
 -----8<----- END FILE: app/models.py -----
 
 -----8<----- FILE: app/routers/auth.py -----
@@ -409,6 +410,100 @@
     90	    }
 -----8<----- END FILE: app/routers/auth.py -----
 
+-----8<----- FILE: app/routers/catalogos.py -----
+     1	# app/routers/catalogos.py
+     2	from fastapi import APIRouter, Depends, HTTPException, Query
+     3	from sqlalchemy.orm import Session
+     4	from sqlalchemy import text
+     5	from typing import List
+     6	from app.db import get_db
+     7	
+     8	router = APIRouter(prefix="/api/catalogos", tags=["Catálogos"])
+     9	
+    10	# Utilidad: limpiar nombre
+    11	def _norm(s: str) -> str:
+    12	    return (s or "").strip()
+    13	
+    14	@router.get("/municipios", response_model=List[str])
+    15	def lista_municipios(
+    16	    limit: int = Query(10000, ge=1, le=50000),
+    17	    db: Session = Depends(get_db),
+    18	):
+    19	    # Solo necesitamos nombres. Filtramos por activo si existe esa columna.
+    20	    sql = text("""
+    21	        SELECT nombre
+    22	        FROM municipio
+    23	        WHERE (activo IS NULL OR activo = TRUE)
+    24	        ORDER BY nombre ASC
+    25	        LIMIT :limit
+    26	    """)
+    27	    rows = db.execute(sql, {"limit": limit}).fetchall()
+    28	    return [r[0] for r in rows if r[0]]
+    29	
+    30	@router.get("/tipos-carga", response_model=List[str])
+    31	def lista_tipos_carga(
+    32	    limit: int = Query(10000, ge=1, le=50000),
+    33	    db: Session = Depends(get_db),
+    34	):
+    35	    # Tabla: tipo_carga (columna 'nombre' y opcional 'activo')
+    36	    sql = text("""
+    37	        SELECT nombre
+    38	        FROM tipo_carga
+    39	        WHERE (activo IS NULL OR activo = TRUE)
+    40	        ORDER BY nombre ASC
+    41	        LIMIT :limit
+    42	    """)
+    43	    rows = db.execute(sql, {"limit": limit}).fetchall()
+    44	    return [r[0] for r in rows if r[0]]
+    45	
+    46	@router.get("/tipos-vehiculo", response_model=List[str])
+    47	def lista_tipos_vehiculo(
+    48	    limit: int = Query(10000, ge=1, le=50000),
+    49	    db: Session = Depends(get_db),
+    50	):
+    51	    # Tabla: tipo_vehiculo (columna 'nombre' y opcional 'activo')
+    52	    sql = text("""
+    53	        SELECT nombre
+    54	        FROM tipo_vehiculo
+    55	        WHERE (activo IS NULL OR activo = TRUE)
+    56	        ORDER BY nombre ASC
+    57	        LIMIT :limit
+    58	    """)
+    59	    rows = db.execute(sql, {"limit": limit}).fetchall()
+    60	    return [r[0] for r in rows if r[0]]
+    61	
+    62	# ─────────────────────────────────────────────────────────
+    63	# Altas "silenciosas": si el usuario escribe uno que no existe
+    64	# ─────────────────────────────────────────────────────────
+    65	
+    66	@router.post("/tipos-carga", status_code=201)
+    67	def crear_tipo_carga(nombre: str, db: Session = Depends(get_db)):
+    68	    nombre = _norm(nombre)
+    69	    if not nombre:
+    70	        raise HTTPException(status_code=400, detail="Nombre requerido")
+    71	    # upsert simple por nombre
+    72	    sql_exists = text("SELECT 1 FROM tipo_carga WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
+    73	    if db.execute(sql_exists, {"n": nombre}).fetchone():
+    74	        return {"created": False, "nombre": nombre}  # ya existía
+    75	    sql_ins = text("INSERT INTO tipo_carga (nombre, activo) VALUES (:n, TRUE)")
+    76	    db.execute(sql_ins, {"n": nombre})
+    77	    db.commit()
+    78	    return {"created": True, "nombre": nombre}
+    79	
+    80	@router.post("/tipos-vehiculo", status_code=201)
+    81	def crear_tipo_vehiculo(nombre: str, db: Session = Depends(get_db)):
+    82	    nombre = _norm(nombre)
+    83	    if not nombre:
+    84	        raise HTTPException(status_code=400, detail="Nombre requerido")
+    85	    sql_exists = text("SELECT 1 FROM tipo_vehiculo WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
+    86	    if db.execute(sql_exists, {"n": nombre}).fetchone():
+    87	        return {"created": False, "nombre": nombre}
+    88	    sql_ins = text("INSERT INTO tipo_vehiculo (nombre, activo) VALUES (:n, TRUE)")
+    89	    db.execute(sql_ins, {"n": nombre})
+    90	    db.commit()
+    91	    return {"created": True, "nombre": nombre}
+-----8<----- END FILE: app/routers/catalogos.py -----
+
 -----8<----- FILE: app/routers/loads.py -----
      1	# app/routers/loads.py
      2	from fastapi import APIRouter, Depends, status, HTTPException, Query
@@ -421,44 +516,38 @@
      9	
     10	router = APIRouter(prefix="/api/loads", tags=["Loads"])
     11	
-    12	# Crear
-    13	@router.post("", response_model=schemas.CargoOut, status_code=status.HTTP_201_CREATED)
-    14	def create_load(payload: schemas.CargoCreate,
-    15	                db: Session = Depends(get_db),
-    16	                current: models.User = Depends(get_current_user)):
-    17	    return crud.create_cargo(db, payload, comercial_id=current.id)
-    18	
-    19	# Listar PÚBLICOS (portada)
-    20	@router.get("/public", response_model=List[schemas.CargoOut])
-    21	def list_public(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    22	    return crud.get_public_cargas(db, skip=skip, limit=limit)
-    23	
-    24	# Mis viajes (status = all|published|expired)
-    25	@router.get("/mine", response_model=List[schemas.CargoOut])
-    26	def list_my_loads(status: str = Query("all", pattern="^(all|published|expired)$"),
-    27	                  skip: int = 0, limit: int = 100,
-    28	                  db: Session = Depends(get_db),
-    29	                  current: models.User = Depends(get_current_user)):
-    30	    return crud.get_my_cargas(db, current.id, status=status, skip=skip, limit=limit)
-    31	
-    32	# Detalle
-    33	@router.get("/{load_id}", response_model=schemas.CargoOut)
-    34	def get_one(load_id: str,
-    35	            db: Session = Depends(get_db)):
-    36	    obj = crud.get_cargo(db, load_id)
-    37	    if not obj:
-    38	        raise HTTPException(status_code=404, detail="Viaje no encontrado.")
-    39	    return obj
-    40	
-    41	# Caducar (eliminar a “historial”)
-    42	@router.post("/{load_id}/expire", response_model=schemas.CargoOut)
-    43	def expire(load_id: str,
-    44	           db: Session = Depends(get_db),
-    45	           current: models.User = Depends(get_current_user)):
-    46	    obj = crud.expire_cargo(db, load_id, owner_id=current.id)
-    47	    if not obj:
-    48	        raise HTTPException(status_code=404, detail="No encontrado o sin permisos.")
-    49	    return obj
+    12	@router.post("", response_model=schemas.CargoOut, status_code=status.HTTP_201_CREATED)
+    13	def create_load(payload: schemas.CargoCreate,
+    14	                db: Session = Depends(get_db),
+    15	                current: models.User = Depends(get_current_user)):
+    16	    return crud.create_cargo(db, payload, comercial_id=current.id)
+    17	
+    18	@router.get("/public", response_model=List[schemas.CargoOut])
+    19	def list_public(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    20	    return crud.get_public_cargas(db, skip=skip, limit=limit)
+    21	
+    22	@router.get("/mine", response_model=List[schemas.CargoOut])
+    23	def list_my_loads(status: str = Query("all", pattern="^(all|published|expired)$"),
+    24	                  skip: int = 0, limit: int = 100,
+    25	                  db: Session = Depends(get_db),
+    26	                  current: models.User = Depends(get_current_user)):
+    27	    return crud.get_my_cargas(db, current.id, status=status, skip=skip, limit=limit)
+    28	
+    29	@router.get("/{load_id}", response_model=schemas.CargoOut)
+    30	def get_one(load_id: str, db: Session = Depends(get_db)):
+    31	    obj = crud.get_cargo(db, load_id)
+    32	    if not obj:
+    33	        raise HTTPException(status_code=404, detail="Viaje no encontrado.")
+    34	    return obj
+    35	
+    36	@router.post("/{load_id}/expire", response_model=schemas.CargoOut)
+    37	def expire(load_id: str,
+    38	           db: Session = Depends(get_db),
+    39	           current: models.User = Depends(get_current_user)):
+    40	    obj = crud.expire_cargo(db, load_id, owner_id=current.id)
+    41	    if not obj:
+    42	        raise HTTPException(status_code=404, detail="No encontrado o sin permisos.")
+    43	    return obj
 -----8<----- END FILE: app/routers/loads.py -----
 
 -----8<----- FILE: app/routers/users.py -----
@@ -625,7 +714,7 @@
      5	from uuid import UUID
      6	from datetime import datetime
      7	
-     8	# ========= USERS (igual) =========
+     8	# ========= USERS =========
      9	
     10	class UserBase(BaseModel):
     11	    email: EmailStr
@@ -654,50 +743,63 @@
     34	    active: bool
     35	    points: int = 0
     36	    is_premium: bool = False
-    37	    class Config:
-    38	        from_attributes = True
-    39	
-    40	# ========= AUTH (igual) =========
-    41	class LoginIn(BaseModel):
-    42	    email: EmailStr
-    43	    password: str
-    44	
-    45	class TokenOut(BaseModel):
-    46	    access_token: str
-    47	    token_type: str = "bearer"
-    48	    user: Optional[UserOut] = None
-    49	
-    50	# ========= CARGA =========
-    51	class CargoBase(BaseModel):
-    52	    empresa_id: Optional[UUID] = None
-    53	    origen: str
-    54	    destino: str
-    55	    tipo_carga: str
-    56	    peso: float
-    57	    valor: int
-    58	    # campos del form (opcionales)
-    59	    comercial: Optional[str] = None
-    60	    contacto: Optional[str] = None
-    61	    observaciones: Optional[str] = None
-    62	    conductor: Optional[str] = None
-    63	    vehiculo_id: Optional[str] = None
-    64	    tipo_vehiculo: Optional[str] = None
-    65	    fecha_salida: datetime
-    66	    fecha_llegada_estimada: Optional[datetime] = None
-    67	    premium_trip: bool = False
-    68	
-    69	class CargoCreate(CargoBase):
-    70	    pass
-    71	
-    72	class CargoOut(CargoBase):
-    73	    id: UUID
-    74	    comercial_id: UUID
-    75	    estado: str                   # <- YA existe en tu tabla
-    76	    activo: bool
-    77	    created_at: datetime
-    78	    updated_at: datetime
-    79	    class Config:
-    80	        from_attributes = True
+    37	
+    38	    class Config:
+    39	        from_attributes = True
+    40	
+    41	# ========= AUTH =========
+    42	class LoginIn(BaseModel):
+    43	    email: EmailStr
+    44	    password: str
+    45	
+    46	class TokenOut(BaseModel):
+    47	    access_token: str
+    48	    token_type: str = "bearer"
+    49	    user: Optional[UserOut] = None
+    50	
+    51	# ========= CARGA =========
+    52	class CargoBase(BaseModel):
+    53	    empresa_id: Optional[UUID] = None
+    54	    origen: str
+    55	    destino: str
+    56	    tipo_carga: str
+    57	    peso: float
+    58	    valor: int
+    59	    # extras
+    60	    comercial: Optional[str] = None
+    61	    contacto: Optional[str] = None
+    62	    observaciones: Optional[str] = None
+    63	    conductor: Optional[str] = None
+    64	    # vehiculo_id: Optional[str] = None  # ❌ ELIMINADO
+    65	    tipo_vehiculo: Optional[str] = None
+    66	
+    67	    # duración en horas
+    68	    duration_hours: int = Field(default=24, ge=1, le=168)
+    69	
+    70	class CargoCreate(CargoBase):
+    71	    pass
+    72	
+    73	class CargoOut(CargoBase):
+    74	    id: UUID
+    75	    comercial_id: UUID
+    76	    estado: str
+    77	    activo: bool
+    78	    created_at: datetime
+    79	    updated_at: datetime
+    80	
+    81	    class Config:
+    82	        from_attributes = True
+    83	
+    84	class CatalogoIn(BaseModel):
+    85	    nombre: str
+    86	
+    87	class CatalogoOut(BaseModel):
+    88	    id: int
+    89	    nombre: str
+    90	    activo: bool
+    91	
+    92	    class Config:
+    93	        from_attributes = True
 -----8<----- END FILE: app/schemas.py -----
 
 -----8<----- FILE: app/security.py -----

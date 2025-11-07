@@ -72,13 +72,11 @@ def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
         contacto=data.contacto,
         observaciones=data.observaciones,
         conductor=data.conductor,
-        vehiculo_id=data.vehiculo_id,
+        # vehiculo_id=data.vehiculo_id,  # ❌ ELIMINADO
         tipo_vehiculo=data.tipo_vehiculo,
-        # ❌ fechas removidas
-        # ⏱️ guardar como INTERVAL
         duracion_publicacion=timedelta(hours=int(data.duration_hours or 24)),
         activo=True,
-        premium_trip=data.premium_trip if hasattr(data, "premium_trip") else False,
+        premium_trip=getattr(data, "premium_trip", False),
     )
     db.add(obj); db.commit(); db.refresh(obj)
     return obj

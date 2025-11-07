@@ -34,6 +34,7 @@ class UserOut(UserBase):
     active: bool
     points: int = 0
     is_premium: bool = False
+
     class Config:
         from_attributes = True
 
@@ -60,13 +61,11 @@ class CargoBase(BaseModel):
     contacto: Optional[str] = None
     observaciones: Optional[str] = None
     conductor: Optional[str] = None
-    vehiculo_id: Optional[str] = None
+    # vehiculo_id: Optional[str] = None  # ❌ ELIMINADO
     tipo_vehiculo: Optional[str] = None
 
-    # ⏱️ duración en horas que recibimos del front (6/12/24, default 24)
+    # duración en horas
     duration_hours: int = Field(default=24, ge=1, le=168)
-
-    # ❌ Eliminadas: fechas
 
 class CargoCreate(CargoBase):
     pass
@@ -78,6 +77,7 @@ class CargoOut(CargoBase):
     activo: bool
     created_at: datetime
     updated_at: datetime
+
     class Config:
         from_attributes = True
 
@@ -90,4 +90,4 @@ class CatalogoOut(BaseModel):
     activo: bool
 
     class Config:
-        orm_mode = True
+        from_attributes = True

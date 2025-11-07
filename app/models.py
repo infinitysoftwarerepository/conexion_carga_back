@@ -51,10 +51,10 @@ class Cargo(Base):
     observaciones = Column(String, nullable=True)
 
     conductor = Column(String, nullable=True)
-    vehiculo_id   = Column(String, nullable=True)
+    # vehiculo_id = Column(String, nullable=True)  # ❌ ELIMINADO
     tipo_vehiculo = Column(String, nullable=True)
 
-    # ↓ Fechas eliminadas (ver migración SQL)
+    # ↓ Fechas eliminadas previamente
     # fecha_salida
     # fecha_llegada_estimada
 
@@ -62,32 +62,8 @@ class Cargo(Base):
     activo = Column(Boolean, nullable=False, server_default=text("true"))
     premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
 
-    # Nuevo: cuánto tiempo permanece publicado (se mapea desde horas -> timedelta)
+    # horas -> interval
     duracion_publicacion = Column(Interval, nullable=True, server_default=text("'24 hours'::interval"))
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
-
-class Municipio(Base):
-    __tablename__ = "municipio"
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String(255), unique=True, nullable=False)
-    activo = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
-
-class TipoCarga(Base):
-    __tablename__ = "tipo_carga"
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String(255), unique=True, nullable=False)
-    activo = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
-
-class TipoVehiculo(Base):
-    __tablename__ = "tipo_vehiculo"
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String(255), unique=True, nullable=False)
-    activo = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
