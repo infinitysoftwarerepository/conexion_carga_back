@@ -1,907 +1,1451 @@
-# Snapshot generado: 2025-11-07T21:30:51+00:00
+===== APP DUMP 2025-11-12 20:33:14 UTC =====
+PROJECT ROOT: /opt/apps/conexion_carga_back
 
-## Árbol de directorios (app/)
+.
+backups
+backups/security_2025-10-21_161715.py
+backups/security_2025-10-21_155406.py
+backups/security_2025-10-21_160708.py
+backups/security_2025-10-21_160647.py
+requirements.txt
+db_schema_all.sql
+dump_app.sh
+app
+app/routers
+app/routers/auth.py
+app/routers/users.py
+app/routers/catalogos.py
+app/routers/loads.py
+app/main.py
+app/services
+app/services/emailer.py
+app/services/__init__.py
+app/crud.py
+app/emailer.py
+app/models.py
+app/schemas.py
+app/__init__.py
+app/security.py
+app/db.py
+.gitignore
+app_completa.txt
+.env
 
-## requirements.txt
-    fastapi>=0.110,<1
-    uvicorn[standard]>=0.23
-    SQLAlchemy>=2.0
-    psycopg2-binary>=2.9
-    python-dotenv>=1.0
-    passlib[bcrypt]==1.7.4
-    bcrypt==4.0.1
-    pydantic>=2,<3
 
-## Contenido de archivos .py
+----- BEGIN FILE: ./app_completa.txt -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app_completa.txt
 
------8<----- FILE: app/crud.py -----
-     1	# app/crud.py
-     2	from __future__ import annotations
-     3	from typing import List, Optional
-     4	from uuid import UUID
-     5	from datetime import timedelta
-     6	from sqlalchemy.orm import Session
-     7	from sqlalchemy import func, or_
-     8	
-     9	from . import models, schemas
-    10	from .security import get_password_hash
-    11	
-    12	# ---------- USERS ----------
-    13	def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
-    14	    return (
-    15	        db.query(models.User)
-    16	        .order_by(models.User.created_at.desc())
-    17	        .offset(skip).limit(limit).all()
-    18	    )
-    19	
-    20	def get_user(db: Session, user_id: UUID) -> Optional[models.User]:
-    21	    return db.query(models.User).filter(models.User.id == user_id).first()
-    22	
-    23	def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
-    24	    return (
-    25	        db.query(models.User)
-    26	        .filter(func.lower(models.User.email) == func.lower(email.strip()))
-    27	        .first()
-    28	    )
-    29	
-    30	def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str,
-    31	                referred_by_id: Optional[UUID] = None) -> models.User:
-    32	    u = models.User(
-    33	        email=user_in.email.strip(),
-    34	        first_name=user_in.first_name,
-    35	        last_name=user_in.last_name,
-    36	        phone=user_in.phone,
-    37	        is_company=user_in.is_company,
-    38	        company_name=user_in.company_name if user_in.is_company else None,
-    39	        password_hash=password_hash,
-    40	        active=False,
-    41	        referred_by_id=referred_by_id,
-    42	    )
-    43	    db.add(u); db.commit(); db.refresh(u)
-    44	    return u
-    45	
-    46	def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Optional[models.User]:
-    47	    u = get_user(db, user_id)
-    48	    if not u:
-    49	        return None
-    50	    for attr in ("email","first_name","last_name","phone","is_company","company_name"):
-    51	        val = getattr(user_in, attr, None)
-    52	        if val is not None:
-    53	            setattr(u, attr, val)
-    54	    if user_in.is_company is False:
-    55	        u.company_name = None
-    56	    if user_in.password:
-    57	        u.password_hash = get_password_hash(user_in.password)
-    58	    db.add(u); db.commit(); db.refresh(u)
-    59	    return u
-    60	
-    61	# ---------- CARGAS ----------
-    62	def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
-    63	    obj = models.Cargo(
-    64	        empresa_id=data.empresa_id,
-    65	        origen=data.origen,
-    66	        destino=data.destino,
-    67	        tipo_carga=data.tipo_carga,
-    68	        peso=data.peso,
-    69	        valor=data.valor,
-    70	        comercial_id=comercial_id,
-    71	        comercial=data.comercial,
-    72	        contacto=data.contacto,
-    73	        observaciones=data.observaciones,
-    74	        conductor=data.conductor,
-    75	        # vehiculo_id=data.vehiculo_id,  # ❌ ELIMINADO
-    76	        tipo_vehiculo=data.tipo_vehiculo,
-    77	        duracion_publicacion=timedelta(hours=int(data.duration_hours or 24)),
-    78	        activo=True,
-    79	        premium_trip=getattr(data, "premium_trip", False),
-    80	    )
-    81	    db.add(obj); db.commit(); db.refresh(obj)
-    82	    return obj
-    83	
-    84	def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:
-    85	    return db.query(models.Cargo).filter(models.Cargo.id == cargo_id).first()
-    86	
-    87	def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
-    88	    return (
-    89	        db.query(models.Cargo)
-    90	        .filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
-    91	        .order_by(models.Cargo.created_at.desc())
-    92	        .offset(skip).limit(limit).all()
-    93	    )
-    94	
-    95	def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=100):
-    96	    q = db.query(models.Cargo).filter(models.Cargo.comercial_id == comercial_id)
-    97	    if status == "published":
-    98	        q = q.filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
-    99	    elif status == "expired":
-   100	        q = q.filter(or_(models.Cargo.estado == "caducado",
-   101	                         models.Cargo.estado == "eliminado",
-   102	                         models.Cargo.activo.is_(False)))
-   103	    return (
-   104	        q.order_by(models.Cargo.created_at.desc())
-   105	         .offset(skip).limit(limit).all()
-   106	    )
-   107	
-   108	def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models.Cargo]:
-   109	    c = get_cargo(db, cargo_id)
-   110	    if not c or c.comercial_id != owner_id:
-   111	        return None
-   112	    c.estado = "caducado"
-   113	    c.activo = False
-   114	    db.add(c); db.commit(); db.refresh(c)
-   115	    return c
------8<----- END FILE: app/crud.py -----
 
------8<----- FILE: app/db.py -----
-     1	import os
-     2	from dotenv import load_dotenv
-     3	from sqlalchemy import create_engine
-     4	from sqlalchemy.orm import sessionmaker, declarative_base
-     5	
-     6	load_dotenv()
-     7	
-     8	DATABASE_URL = os.getenv(
-     9	    "DATABASE_URL",
-    10	    "postgresql+psycopg2://infinity:infinity@localhost/conexion_carga"
-    11	)
-    12	
-    13	engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-    14	SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    15	Base = declarative_base()
-    16	
-    17	def get_db():
-    18	    db = SessionLocal()
-    19	    try:
-    20	        yield db
-    21	    finally:
-    22	        db.close()
------8<----- END FILE: app/db.py -----
+----- END FILE: ./app_completa.txt -----
 
------8<----- FILE: app/emailer.py -----
-     1	"""
-     2	Servicio de envío de correos vía SMTP (por ejemplo Gmail).
-     3	Usa App Password de 16 caracteres (variable de entorno SMTP_PASS).
-     4	"""
-     5	
-     6	import os
-     7	import ssl
-     8	import smtplib
-     9	from email.message import EmailMessage
-    10	
-    11	# Configuración desde .env
-    12	SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")   # Servidor SMTP
-    13	SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))         # Puerto STARTTLS
-    14	SMTP_USER = os.getenv("SMTP_USER")                     # Cuenta de correo remitente
-    15	SMTP_PASS = os.getenv("SMTP_PASS")                     # App Password
-    16	EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)        # Nombre visible del remitente
-    17	
-    18	def send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
-    19	    """
-    20	    Envía un correo con versión texto y opcionalmente HTML.
-    21	    Lanza excepción si falla.
-    22	    """
-    23	
-    24	    # 1️⃣ Validar credenciales
-    25	    if not SMTP_USER or not SMTP_PASS:
-    26	        raise RuntimeError("SMTP_USER/SMTP_PASS no configurados en .env")
-    27	
-    28	    # 2️⃣ Crear el mensaje de correo
-    29	    msg = EmailMessage()
-    30	    msg["From"] = EMAIL_FROM or SMTP_USER
-    31	    msg["To"] = to_email
-    32	    msg["Subject"] = subject
-    33	    msg.set_content(text_body)
-    34	    if html_body:
-    35	        msg.add_alternative(html_body, subtype="html")
-    36	
-    37	    # 3️⃣ Conectar al servidor y enviar
-    38	    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-    39	        s.starttls(context=ssl.create_default_context())  # conexión segura
-    40	        s.login(SMTP_USER, SMTP_PASS)                     # autenticación
-    41	        s.send_message(msg)                               # enviar mensaje
------8<----- END FILE: app/emailer.py -----
+----- BEGIN FILE: ./app/crud.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/crud.py
 
------8<----- FILE: app/__init__.py -----
------8<----- END FILE: app/__init__.py -----
+# app/crud.py
+from __future__ import annotations
+from typing import List, Optional
+from uuid import UUID
+from datetime import timedelta
+from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 
------8<----- FILE: app/main.py -----
-     1	# app/main.py
-     2	"""
-     3	Entrypoint principal: inicializa DB, CORS y monta routers.
-     4	"""
-     5	
-     6	from fastapi import FastAPI
-     7	from fastapi.middleware.cors import CORSMiddleware
-     8	
-     9	from app.db import Base, engine
-    10	from app.routers import users, auth, loads, catalogos  # 👈 nuevo router importado
-    11	
-    12	# Inicializar tablas
-    13	Base.metadata.create_all(bind=engine)
-    14	
-    15	app = FastAPI(
-    16	    title="Conexión Carga - Backend",
-    17	    openapi_url="/openapi.json",
-    18	    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el Bearer en /docs
-    19	)
-    20	
-    21	# CORS
-    22	app.add_middleware(
-    23	    CORSMiddleware,
-    24	    allow_origins=["*"],
-    25	    allow_credentials=True,
-    26	    allow_methods=["*"],
-    27	    allow_headers=["*"],
-    28	)
-    29	
-    30	@app.get("/health")
-    31	def health():
-    32	    return {"ok": True, "message": "API running"}
-    33	
-    34	# Montar routers
-    35	app.include_router(users.router)
-    36	app.include_router(auth.router)
-    37	app.include_router(loads.router)
-    38	app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_
------8<----- END FILE: app/main.py -----
+from . import models, schemas
+from .security import get_password_hash
 
------8<----- FILE: app/models.py -----
-     1	# app/models.py
-     2	from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text, Interval
-     3	from sqlalchemy.dialects.postgresql import UUID
-     4	from .db import Base
-     5	import uuid
-     6	
-     7	class User(Base):
-     8	    __tablename__ = "users"
-     9	    __table_args__ = {"schema": "conexion_carga"}
-    10	
-    11	    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
-    12	                server_default=text("uuid_generate_v4()"), nullable=False)
-    13	    email = Column(String(255), unique=True, index=True, nullable=False)
-    14	    password_hash = Column(String(255), nullable=False)
-    15	    first_name = Column(String(120), nullable=False)
-    16	    last_name  = Column(String(120), nullable=False)
-    17	    phone = Column(String(30), nullable=True)
-    18	
-    19	    is_company = Column(Boolean, nullable=False, server_default=text("false"))
-    20	    company_name = Column(String(255), nullable=True)
-    21	    is_premium = Column(Boolean, nullable=False, server_default=text("false"))
-    22	    active = Column(Boolean, nullable=False, server_default=text("true"))
-    23	    created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
-    24	
-    25	    points = Column(Integer, nullable=False, server_default=text("0"))
-    26	    referred_by_id = Column(UUID(as_uuid=True),
-    27	                            ForeignKey("conexion_carga.users.id", ondelete="SET NULL"),
-    28	                            nullable=True)
-    29	    referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
-    30	
-    31	class Cargo(Base):
-    32	    __tablename__ = "carga"
-    33	    __table_args__ = {"schema": "conexion_carga"}
-    34	
-    35	    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    36	    empresa_id = Column(UUID(as_uuid=True), nullable=True)
-    37	
-    38	    origen = Column(String, nullable=False)
-    39	    destino = Column(String, nullable=False)
-    40	    tipo_carga = Column(String, nullable=False)
-    41	
-    42	    peso  = Column(Numeric(10, 2), nullable=False)
-    43	    valor = Column(Integer, nullable=False)
-    44	
-    45	    comercial_id = Column(UUID(as_uuid=True),
-    46	                          ForeignKey("conexion_carga.users.id", ondelete="CASCADE"),
-    47	                          nullable=False)
-    48	
-    49	    comercial = Column(String, nullable=True)
-    50	    contacto  = Column(String, nullable=True)
-    51	    observaciones = Column(String, nullable=True)
-    52	
-    53	    conductor = Column(String, nullable=True)
-    54	    # vehiculo_id = Column(String, nullable=True)  # ❌ ELIMINADO
-    55	    tipo_vehiculo = Column(String, nullable=True)
-    56	
-    57	    # ↓ Fechas eliminadas previamente
-    58	    # fecha_salida
-    59	    # fecha_llegada_estimada
-    60	
-    61	    estado = Column(String, nullable=False, server_default=text("'publicado'"))
-    62	    activo = Column(Boolean, nullable=False, server_default=text("true"))
-    63	    premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
-    64	
-    65	    # horas -> interval
-    66	    duracion_publicacion = Column(Interval, nullable=True, server_default=text("'24 hours'::interval"))
-    67	
-    68	    created_at = Column(DateTime, nullable=False, server_default=func.now())
-    69	    updated_at = Column(DateTime, nullable=False, server_default=func.now())
------8<----- END FILE: app/models.py -----
+# ---------- USERS ----------
+def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
+    return (
+        db.query(models.User)
+        .order_by(models.User.created_at.desc())
+        .offset(skip).limit(limit).all()
+    )
 
------8<----- FILE: app/routers/auth.py -----
-     1	# app/routers/auth.py
-     2	"""
-     3	Rutas de autenticación.
-     4	
-     5	CAMBIOS CLAVE:
-     6	- response_model=TokenOut ahora coincide con el JSON que devolvemos
-     7	  (access_token + token_type + user opcional).
-     8	- Devolvemos también 'user' para que el cliente tenga el perfil inmediatamente
-     9	  (evita un /me justo después de loguear).
-    10	- Usamos response_model_exclude_none=True para no forzar 'user' si no lo quieres incluir.
-    11	"""
-    12	
-    13	from fastapi import APIRouter, Depends, HTTPException, status, Form
-    14	from sqlalchemy.orm import Session
-    15	
-    16	from app.db import get_db
-    17	from app import schemas, crud
-    18	from app.security import verify_password, create_access_token  # ya existente
-    19	
-    20	router = APIRouter(prefix="/api/auth", tags=["Auth"])
-    21	
-    22	
-    23	@router.post(
-    24	    "/login",
-    25	    response_model=schemas.TokenOut,
-    26	    response_model_exclude_none=True,
-    27	    summary="Login (JSON)",
-    28	)
-    29	def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):
-    30	    """
-    31	    Inicia sesión con JSON:
-    32	      { "email": "...", "password": "..." }
-    33	
-    34	    Respuesta (coincide con schemas.TokenOut):
-    35	      {
-    36	        "access_token": "<JWT>",
-    37	        "token_type": "bearer",
-    38	        "user": { ...UserOut }   # opcional pero recomendado
-    39	      }
-    40	    """
-    41	    user = crud.get_user_by_email(db, payload.email)
-    42	    if not user or not verify_password(payload.password, user.password_hash):
-    43	        raise HTTPException(
-    44	            status_code=status.HTTP_401_UNAUTHORIZED,
-    45	            detail="Credenciales inválidas.",
-    46	        )
-    47	
-    48	    token = create_access_token({"sub": str(user.id)})
-    49	
-    50	    # Construimos UserOut para no filtrar campos sensibles y mantener
-    51	    # el contrato estable entre back y front.
-    52	    user_out = schemas.UserOut.model_validate(user)
-    53	
-    54	    return {
-    55	        "access_token": token,
-    56	        "token_type": "bearer",
-    57	        "user": user_out,
-    58	    }
-    59	
-    60	
-    61	@router.post(
-    62	    "/login-form",
-    63	    response_model=schemas.TokenOut,
-    64	    response_model_exclude_none=True,
-    65	    summary="Login (form-url-encoded)",
-    66	)
-    67	def login_form(
-    68	    email: str = Form(...),
-    69	    password: str = Form(...),
-    70	    db: Session = Depends(get_db),
-    71	):
-    72	    """
-    73	    Variante para facilitar pruebas desde Swagger o formularios
-    74	    application/x-www-form-urlencoded.
-    75	    """
-    76	    user = crud.get_user_by_email(db, email)
-    77	    if not user or not verify_password(password, user.password_hash):
-    78	        raise HTTPException(
-    79	            status_code=status.HTTP_401_UNAUTHORIZED,
-    80	            detail="Credenciales inválidas.",
-    81	        )
-    82	
-    83	    token = create_access_token({"sub": str(user.id)})
-    84	    user_out = schemas.UserOut.model_validate(user)
-    85	
-    86	    return {
-    87	        "access_token": token,
-    88	        "token_type": "bearer",
-    89	        "user": user_out,
-    90	    }
------8<----- END FILE: app/routers/auth.py -----
+def get_user(db: Session, user_id: UUID) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.id == user_id).first()
 
------8<----- FILE: app/routers/catalogos.py -----
-     1	# app/routers/catalogos.py
-     2	from fastapi import APIRouter, Depends, HTTPException, Query
-     3	from sqlalchemy.orm import Session
-     4	from sqlalchemy import text
-     5	from typing import List
-     6	from app.db import get_db
-     7	
-     8	router = APIRouter(prefix="/api/catalogos", tags=["Catálogos"])
-     9	
-    10	# Utilidad: limpiar nombre
-    11	def _norm(s: str) -> str:
-    12	    return (s or "").strip()
-    13	
-    14	@router.get("/municipios", response_model=List[str])
-    15	def lista_municipios(
-    16	    limit: int = Query(10000, ge=1, le=50000),
-    17	    db: Session = Depends(get_db),
-    18	):
-    19	    # Solo necesitamos nombres. Filtramos por activo si existe esa columna.
-    20	    sql = text("""
-    21	        SELECT nombre
-    22	        FROM municipio
-    23	        WHERE (activo IS NULL OR activo = TRUE)
-    24	        ORDER BY nombre ASC
-    25	        LIMIT :limit
-    26	    """)
-    27	    rows = db.execute(sql, {"limit": limit}).fetchall()
-    28	    return [r[0] for r in rows if r[0]]
-    29	
-    30	@router.get("/tipos-carga", response_model=List[str])
-    31	def lista_tipos_carga(
-    32	    limit: int = Query(10000, ge=1, le=50000),
-    33	    db: Session = Depends(get_db),
-    34	):
-    35	    # Tabla: tipo_carga (columna 'nombre' y opcional 'activo')
-    36	    sql = text("""
-    37	        SELECT nombre
-    38	        FROM tipo_carga
-    39	        WHERE (activo IS NULL OR activo = TRUE)
-    40	        ORDER BY nombre ASC
-    41	        LIMIT :limit
-    42	    """)
-    43	    rows = db.execute(sql, {"limit": limit}).fetchall()
-    44	    return [r[0] for r in rows if r[0]]
-    45	
-    46	@router.get("/tipos-vehiculo", response_model=List[str])
-    47	def lista_tipos_vehiculo(
-    48	    limit: int = Query(10000, ge=1, le=50000),
-    49	    db: Session = Depends(get_db),
-    50	):
-    51	    # Tabla: tipo_vehiculo (columna 'nombre' y opcional 'activo')
-    52	    sql = text("""
-    53	        SELECT nombre
-    54	        FROM tipo_vehiculo
-    55	        WHERE (activo IS NULL OR activo = TRUE)
-    56	        ORDER BY nombre ASC
-    57	        LIMIT :limit
-    58	    """)
-    59	    rows = db.execute(sql, {"limit": limit}).fetchall()
-    60	    return [r[0] for r in rows if r[0]]
-    61	
-    62	# ─────────────────────────────────────────────────────────
-    63	# Altas "silenciosas": si el usuario escribe uno que no existe
-    64	# ─────────────────────────────────────────────────────────
-    65	
-    66	@router.post("/tipos-carga", status_code=201)
-    67	def crear_tipo_carga(nombre: str, db: Session = Depends(get_db)):
-    68	    nombre = _norm(nombre)
-    69	    if not nombre:
-    70	        raise HTTPException(status_code=400, detail="Nombre requerido")
-    71	    # upsert simple por nombre
-    72	    sql_exists = text("SELECT 1 FROM tipo_carga WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
-    73	    if db.execute(sql_exists, {"n": nombre}).fetchone():
-    74	        return {"created": False, "nombre": nombre}  # ya existía
-    75	    sql_ins = text("INSERT INTO tipo_carga (nombre, activo) VALUES (:n, TRUE)")
-    76	    db.execute(sql_ins, {"n": nombre})
-    77	    db.commit()
-    78	    return {"created": True, "nombre": nombre}
-    79	
-    80	@router.post("/tipos-vehiculo", status_code=201)
-    81	def crear_tipo_vehiculo(nombre: str, db: Session = Depends(get_db)):
-    82	    nombre = _norm(nombre)
-    83	    if not nombre:
-    84	        raise HTTPException(status_code=400, detail="Nombre requerido")
-    85	    sql_exists = text("SELECT 1 FROM tipo_vehiculo WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
-    86	    if db.execute(sql_exists, {"n": nombre}).fetchone():
-    87	        return {"created": False, "nombre": nombre}
-    88	    sql_ins = text("INSERT INTO tipo_vehiculo (nombre, activo) VALUES (:n, TRUE)")
-    89	    db.execute(sql_ins, {"n": nombre})
-    90	    db.commit()
-    91	    return {"created": True, "nombre": nombre}
------8<----- END FILE: app/routers/catalogos.py -----
+def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    return (
+        db.query(models.User)
+        .filter(func.lower(models.User.email) == func.lower(email.strip()))
+        .first()
+    )
 
------8<----- FILE: app/routers/loads.py -----
-     1	# app/routers/loads.py
-     2	from fastapi import APIRouter, Depends, status, HTTPException, Query
-     3	from sqlalchemy.orm import Session
-     4	from typing import List
-     5	
-     6	from app.db import get_db
-     7	from app.security import get_current_user
-     8	from app import crud, schemas, models
-     9	
-    10	router = APIRouter(prefix="/api/loads", tags=["Loads"])
-    11	
-    12	@router.post("", response_model=schemas.CargoOut, status_code=status.HTTP_201_CREATED)
-    13	def create_load(payload: schemas.CargoCreate,
-    14	                db: Session = Depends(get_db),
-    15	                current: models.User = Depends(get_current_user)):
-    16	    return crud.create_cargo(db, payload, comercial_id=current.id)
-    17	
-    18	@router.get("/public", response_model=List[schemas.CargoOut])
-    19	def list_public(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    20	    return crud.get_public_cargas(db, skip=skip, limit=limit)
-    21	
-    22	@router.get("/mine", response_model=List[schemas.CargoOut])
-    23	def list_my_loads(status: str = Query("all", pattern="^(all|published|expired)$"),
-    24	                  skip: int = 0, limit: int = 100,
-    25	                  db: Session = Depends(get_db),
-    26	                  current: models.User = Depends(get_current_user)):
-    27	    return crud.get_my_cargas(db, current.id, status=status, skip=skip, limit=limit)
-    28	
-    29	@router.get("/{load_id}", response_model=schemas.CargoOut)
-    30	def get_one(load_id: str, db: Session = Depends(get_db)):
-    31	    obj = crud.get_cargo(db, load_id)
-    32	    if not obj:
-    33	        raise HTTPException(status_code=404, detail="Viaje no encontrado.")
-    34	    return obj
-    35	
-    36	@router.post("/{load_id}/expire", response_model=schemas.CargoOut)
-    37	def expire(load_id: str,
-    38	           db: Session = Depends(get_db),
-    39	           current: models.User = Depends(get_current_user)):
-    40	    obj = crud.expire_cargo(db, load_id, owner_id=current.id)
-    41	    if not obj:
-    42	        raise HTTPException(status_code=404, detail="No encontrado o sin permisos.")
-    43	    return obj
------8<----- END FILE: app/routers/loads.py -----
+def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str,
+                referred_by_id: Optional[UUID] = None) -> models.User:
+    u = models.User(
+        email=user_in.email.strip(),
+        first_name=user_in.first_name,
+        last_name=user_in.last_name,
+        phone=user_in.phone,
+        is_company=user_in.is_company,
+        company_name=user_in.company_name if user_in.is_company else None,
+        password_hash=password_hash,
+        active=False,
+        referred_by_id=referred_by_id,
+    )
+    db.add(u); db.commit(); db.refresh(u)
+    return u
 
------8<----- FILE: app/routers/users.py -----
-     1	# app/routers/users.py
-     2	"""
-     3	Módulo de rutas de usuarios.
-     4	Contiene:
-     5	- registro
-     6	- verificación de email
-     7	- actualización
-     8	- /me (perfil del usuario con token)
-     9	"""
-    10	from __future__ import annotations
-    11	import os, time, random, string
-    12	from typing import Dict
-    13	from uuid import UUID
-    14	
-    15	from fastapi import APIRouter, Depends, HTTPException, status
-    16	from pydantic import BaseModel, EmailStr, Field
-    17	from sqlalchemy.orm import Session
-    18	
-    19	from app import crud, schemas, models  # ⬅️ (añadido: models para buscar referidor por id)
-    20	from app.db import get_db
-    21	from app.security import get_password_hash, get_current_user
-    22	from app.services.emailer import send_email
-    23	
-    24	# === Config ===
-    25	EMAIL_CODE_LENGTH = int(os.getenv("EMAIL_CODE_LENGTH", "6"))
-    26	EMAIL_CODE_TTL_MINUTES = int(os.getenv("EMAIL_CODE_TTL_MINUTES", "5"))
-    27	EMAIL_RESEND_COOLDOWN_SECONDS = int(os.getenv("EMAIL_RESEND_COOLDOWN_SECONDS", "45"))
-    28	
-    29	# === Stores in-memory (demo) ===
-    30	_verif_store: Dict[str, dict] = {}
-    31	_last_send_epoch: Dict[str, float] = {}
-    32	
-    33	def _gen_code(n: int) -> str:
-    34	    return "".join(random.choices(string.digits, k=n))
-    35	
-    36	router = APIRouter(prefix="/api/users", tags=["Users"])
-    37	
-    38	# ==== Modelos internos ====
-    39	class VerifyIn(BaseModel):
-    40	    email: EmailStr
-    41	    code: str = Field(min_length=1, max_length=64)
-    42	
-    43	@router.get("", response_model=list[schemas.UserOut])
-    44	def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    45	    return crud.get_users(db, skip=skip, limit=limit)
-    46	
-    47	@router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
-    48	def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    49	    # email duplicado
-    50	    existing = crud.get_user_by_email(db, user.email)
-    51	    if existing:
-    52	        raise HTTPException(status_code=400, detail="Email already registered")
-    53	
-    54	    # validar contraseñas iguales
-    55	    if user.password != user.confirm_password:
-    56	        raise HTTPException(status_code=400, detail="Passwords do not match")
-    57	
-    58	    # resolver referidor (OPCIONAL) -> referrer_email viene en schemas.UserCreate
-    59	    ref_id = None
-    60	    if user.referrer_email:
-    61	        ref = crud.get_user_by_email(db, str(user.referrer_email))
-    62	        if not ref:
-    63	            raise HTTPException(status_code=400, detail="Referrer email does not exist")
-    64	        ref_id = ref.id  # UUID del referidor
-    65	
-    66	    # crear usuario con hash y referidor
-    67	    pw_hash = get_password_hash(user.password)
-    68	    created = crud.create_user(db, user, pw_hash, referred_by_id=ref_id)  # ⬅️ pasamos ref_id
-    69	    created.active = False
-    70	    db.add(created); db.commit(); db.refresh(created)
-    71	
-    72	    # cooldown para reenvío de código
-    73	    now = time.time()
-    74	    last = _last_send_epoch.get(user.email, 0.0)
-    75	    if now - last < EMAIL_RESEND_COOLDOWN_SECONDS:
-    76	        raise HTTPException(status_code=429, detail="Wait before resending the code")
-    77	
-    78	    # generar código y enviar email
-    79	    code = _gen_code(EMAIL_CODE_LENGTH)
-    80	    subject = "Verification code - Conexión Carga"
-    81	    text = f"Hola,\nTu código de verificación es: {code}\nVence en {EMAIL_CODE_TTL_MINUTES} minutos."
-    82	    html = f"""
-    83	        <p>Hola,</p>
-    84	        <p>Tu código de verificación es:
-    85	           <strong style='font-size:20px;letter-spacing:2px'>{code}</strong></p>
-    86	        <p>Vence en <strong>{EMAIL_CODE_TTL_MINUTES}</strong> minutos.</p>
-    87	        <p style='color:#666;font-size:12px'>Si no solicitaste este código, ignora este correo.</p>
-    88	    """
-    89	    try:
-    90	        send_email(user.email, subject, text, html)
-    91	    except Exception as e:
-    92	        raise HTTPException(status_code=500, detail=f"Email send failed: {e}")
-    93	
-    94	    _verif_store[user.email] = {
-    95	        "code": code,
-    96	        "expires": time.time() + (EMAIL_CODE_TTL_MINUTES * 60),
-    97	        "attempts": 0,
-    98	    }
-    99	    _last_send_epoch[user.email] = now
-   100	    return created
-   101	
-   102	@router.post("/verify")
-   103	def verify_email(payload: VerifyIn, db: Session = Depends(get_db)):
-   104	    rec = _verif_store.get(payload.email)
-   105	    if not rec:
-   106	        raise HTTPException(status_code=400, detail="No verification pending for this email")
-   107	
-   108	    if time.time() > rec["expires"]:
-   109	        _verif_store.pop(payload.email, None)
-   110	        raise HTTPException(status_code=400, detail="Code expired")
-   111	
-   112	    if str(payload.code).strip() != str(rec["code"]):
-   113	        rec["attempts"] = rec.get("attempts", 0) + 1
-   114	        if rec["attempts"] >= 5:
-   115	            _verif_store.pop(payload.email, None)
-   116	            raise HTTPException(status_code=400, detail="Too many invalid attempts")
-   117	        raise HTTPException(status_code=400, detail="Invalid code")
-   118	
-   119	    user = crud.get_user_by_email(db, payload.email)
-   120	    if not user:
-   121	        raise HTTPException(status_code=404, detail="User not found")
-   122	
-   123	    was_active = bool(user.active)
-   124	    user.active = True
-   125	
-   126	    # ⬇️ premiar referidor UNA vez (cuando el usuario se activa por primera vez)
-   127	    if not was_active and user.referred_by_id and not getattr(user, "referral_rewarded", False):
-   128	        # buscar referidor por UUID
-   129	        ref = db.query(models.User).get(user.referred_by_id)
-   130	        if ref:
-   131	            ref.points = int(ref.points or 0) + 1
-   132	            user.referral_rewarded = True
-   133	
-   134	    db.add(user); db.commit(); db.refresh(user)
-   135	
-   136	    _verif_store.pop(payload.email, None)
-   137	    return {"status": "ok", "message": "Email verified. User activated.", "user_id": str(user.id)}
-   138	
-   139	@router.get("/me", response_model=schemas.UserOut)
-   140	def get_me(current: schemas.UserOut = Depends(get_current_user)):
-   141	    """Devuelve el perfil del usuario autenticado (token en Authorization: Bearer)."""
-   142	    return current
-   143	
-   144	@router.put("/{user_id}", response_model=schemas.UserOut)
-   145	def update_user(user_id: UUID, user: schemas.UserUpdate, db: Session = Depends(get_db)):
-   146	    if user.email:
-   147	        existing = crud.get_user_by_email(db, user.email)
-   148	        if existing and existing.id != user_id:
-   149	            raise HTTPException(status_code=400, detail="Email already in use")
-   150	    updated = crud.update_user(db, user_id, user)
-   151	    if not updated:
-   152	        raise HTTPException(status_code=404, detail="User not found")
-   153	    return updated
------8<----- END FILE: app/routers/users.py -----
+def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Optional[models.User]:
+    u = get_user(db, user_id)
+    if not u:
+        return None
+    for attr in ("email","first_name","last_name","phone","is_company","company_name"):
+        val = getattr(user_in, attr, None)
+        if val is not None:
+            setattr(u, attr, val)
+    if user_in.is_company is False:
+        u.company_name = None
+    if user_in.password:
+        u.password_hash = get_password_hash(user_in.password)
+    db.add(u); db.commit(); db.refresh(u)
+    return u
 
------8<----- FILE: app/schemas.py -----
-     1	# app/schemas.py
-     2	from __future__ import annotations
-     3	from typing import Optional
-     4	from pydantic import BaseModel, EmailStr, Field
-     5	from uuid import UUID
-     6	from datetime import datetime
-     7	
-     8	# ========= USERS =========
-     9	
-    10	class UserBase(BaseModel):
-    11	    email: EmailStr
-    12	    first_name: str = Field(min_length=1)
-    13	    last_name: str = Field(min_length=1)
-    14	    phone: Optional[str] = None
-    15	    is_company: bool = False
-    16	    company_name: Optional[str] = None
-    17	
-    18	class UserCreate(UserBase):
-    19	    password: str = Field(min_length=8)
-    20	    confirm_password: str
-    21	    referrer_email: Optional[EmailStr] = None
-    22	
-    23	class UserUpdate(BaseModel):
-    24	    email: Optional[EmailStr] = None
-    25	    first_name: Optional[str] = None
-    26	    last_name: Optional[str] = None
-    27	    phone: Optional[str] = None
-    28	    is_company: Optional[bool] = None
-    29	    company_name: Optional[str] = None
-    30	    password: Optional[str] = None
-    31	
-    32	class UserOut(UserBase):
-    33	    id: UUID
-    34	    active: bool
-    35	    points: int = 0
-    36	    is_premium: bool = False
-    37	
-    38	    class Config:
-    39	        from_attributes = True
-    40	
-    41	# ========= AUTH =========
-    42	class LoginIn(BaseModel):
-    43	    email: EmailStr
-    44	    password: str
-    45	
-    46	class TokenOut(BaseModel):
-    47	    access_token: str
-    48	    token_type: str = "bearer"
-    49	    user: Optional[UserOut] = None
-    50	
-    51	# ========= CARGA =========
-    52	class CargoBase(BaseModel):
-    53	    empresa_id: Optional[UUID] = None
-    54	    origen: str
-    55	    destino: str
-    56	    tipo_carga: str
-    57	    peso: float
-    58	    valor: int
-    59	    # extras
-    60	    comercial: Optional[str] = None
-    61	    contacto: Optional[str] = None
-    62	    observaciones: Optional[str] = None
-    63	    conductor: Optional[str] = None
-    64	    # vehiculo_id: Optional[str] = None  # ❌ ELIMINADO
-    65	    tipo_vehiculo: Optional[str] = None
-    66	
-    67	    # duración en horas
-    68	    duration_hours: int = Field(default=24, ge=1, le=168)
-    69	
-    70	class CargoCreate(CargoBase):
-    71	    pass
-    72	
-    73	class CargoOut(CargoBase):
-    74	    id: UUID
-    75	    comercial_id: UUID
-    76	    estado: str
-    77	    activo: bool
-    78	    created_at: datetime
-    79	    updated_at: datetime
-    80	
-    81	    class Config:
-    82	        from_attributes = True
-    83	
-    84	class CatalogoIn(BaseModel):
-    85	    nombre: str
-    86	
-    87	class CatalogoOut(BaseModel):
-    88	    id: int
-    89	    nombre: str
-    90	    activo: bool
-    91	
-    92	    class Config:
-    93	        from_attributes = True
------8<----- END FILE: app/schemas.py -----
+# ---------- CARGAS ----------
+def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
+    obj = models.Cargo(
+        empresa_id=data.empresa_id,
+        origen=data.origen,
+        destino=data.destino,
+        tipo_carga=data.tipo_carga,
+        peso=data.peso,
+        valor=data.valor,
+        comercial_id=comercial_id,
+        comercial=data.comercial,
+        contacto=data.contacto,
+        observaciones=data.observaciones,
+        conductor=data.conductor,
+        # vehiculo_id=data.vehiculo_id,  # ❌ ELIMINADO
+        tipo_vehiculo=data.tipo_vehiculo,
+        duracion_publicacion=timedelta(hours=int(data.duration_hours or 24)),
+        activo=True,
+        premium_trip=getattr(data, "premium_trip", False),
+    )
+    db.add(obj); db.commit(); db.refresh(obj)
+    return obj
 
------8<----- FILE: app/security.py -----
-     1	# app/security.py
-     2	from __future__ import annotations
-     3	from datetime import datetime, timedelta, timezone
-     4	from typing import Optional
-     5	from uuid import UUID
-     6	
-     7	from fastapi import Depends, HTTPException, status
-     8	from fastapi.security import OAuth2PasswordBearer
-     9	from jose import jwt, JWTError
-    10	from passlib.context import CryptContext
-    11	from sqlalchemy.orm import Session
-    12	
-    13	from app.db import get_db
-    14	from app import crud, models
-    15	
-    16	# =========================
-    17	# Config JWT
-    18	# =========================
-    19	SECRET_KEY = "super-secret-key-change-me"        # <-- cámbiala en producción
-    20	ALGORITHM = "HS256"
-    21	ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12            # 12h
-    22	
-    23	# =========================
-    24	# Password hashing
-    25	# =========================
-    26	pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    27	
-    28	def get_password_hash(password: str) -> str:
-    29	    return pwd_context.hash(password)
-    30	
-    31	def verify_password(plain_password: str, password_hash: str) -> bool:
-    32	    try:
-    33	        return pwd_context.verify(plain_password, password_hash)
-    34	    except Exception:
-    35	        return False
-    36	
-    37	# =========================
-    38	# Token helpers
-    39	# =========================
-    40	def create_access_token(data: dict, expires_minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES) -> str:
-    41	    to_encode = data.copy()
-    42	    expire = datetime.now(tz=timezone.utc) + timedelta(minutes=expires_minutes)
-    43	    to_encode.update({"exp": expire})
-    44	    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    45	
-    46	oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")  # usado por Swagger sólo si usas /login-form
-    47	
-    48	async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.User:
-    49	    """Lee el token Bearer, decodifica y recupera el usuario de BD."""
-    50	    credentials_exc = HTTPException(
-    51	        status_code=status.HTTP_401_UNAUTHORIZED,
-    52	        detail="Not authenticated",
-    53	        headers={"WWW-Authenticate": "Bearer"},
-    54	    )
-    55	    try:
-    56	        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    57	        sub = payload.get("sub")
-    58	        if not sub:
-    59	            raise credentials_exc
-    60	        user_id = UUID(str(sub))
-    61	    except JWTError:
-    62	        raise credentials_exc
-    63	
-    64	    user = crud.get_user(db, user_id)
-    65	    if not user:
-    66	        raise credentials_exc
-    67	    return user
------8<----- END FILE: app/security.py -----
+def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:
+    return db.query(models.Cargo).filter(models.Cargo.id == cargo_id).first()
 
------8<----- FILE: app/services/emailer.py -----
-     1	# app/services/emailer.py
-     2	import os
-     3	import ssl
-     4	import smtplib
-     5	from email.message import EmailMessage
-     6	
-     7	SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-     8	SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-     9	SMTP_USER = os.getenv("SMTP_USER")
-    10	SMTP_PASS = os.getenv("SMTP_PASS")
-    11	EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
-    12	
-    13	def send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
-    14	    if not SMTP_USER or not SMTP_PASS:
-    15	        raise RuntimeError("SMTP_USER/SMTP_PASS no configurados en .env")
-    16	
-    17	    msg = EmailMessage()
-    18	    msg["From"] = EMAIL_FROM or SMTP_USER
-    19	    msg["To"] = to_email
-    20	    msg["Subject"] = subject
-    21	    msg.set_content(text_body)
-    22	    if html_body:
-    23	        msg.add_alternative(html_body, subtype="html")
-    24	
-    25	    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-    26	        s.starttls(context=ssl.create_default_context())
-    27	        s.login(SMTP_USER, SMTP_PASS)
-    28	        s.send_message(msg)
------8<----- END FILE: app/services/emailer.py -----
+def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
+    return (
+        db.query(models.Cargo)
+        .filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
+        .order_by(models.Cargo.created_at.desc())
+        .offset(skip).limit(limit).all()
+    )
 
------8<----- FILE: app/services/__init__.py -----
------8<----- END FILE: app/services/__init__.py -----
+def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=100):
+    q = db.query(models.Cargo).filter(models.Cargo.comercial_id == comercial_id)
+    if status == "published":
+        q = q.filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
+    elif status == "expired":
+        q = q.filter(or_(models.Cargo.estado == "caducado",
+                         models.Cargo.estado == "eliminado",
+                         models.Cargo.activo.is_(False)))
+    return (
+        q.order_by(models.Cargo.created_at.desc())
+         .offset(skip).limit(limit).all()
+    )
+
+def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models.Cargo]:
+    c = get_cargo(db, cargo_id)
+    if not c or c.comercial_id != owner_id:
+        return None
+    c.estado = "caducado"
+    c.activo = False
+    db.add(c); db.commit(); db.refresh(c)
+    return c
+
+----- END FILE: ./app/crud.py -----
+
+----- BEGIN FILE: ./app/db.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/db.py
+
+import os
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+load_dotenv()
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg2://infinity:infinity@localhost/conexion_carga"
+)
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+----- END FILE: ./app/db.py -----
+
+----- BEGIN FILE: ./app/emailer.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/emailer.py
+
+"""
+Servicio de envío de correos vía SMTP (por ejemplo Gmail).
+Usa App Password de 16 caracteres (variable de entorno SMTP_PASS).
+"""
+
+import os
+import ssl
+import smtplib
+from email.message import EmailMessage
+
+# Configuración desde .env
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")   # Servidor SMTP
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))         # Puerto STARTTLS
+SMTP_USER = os.getenv("SMTP_USER")                     # Cuenta de correo remitente
+SMTP_PASS = os.getenv("SMTP_PASS")                     # App Password
+EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)        # Nombre visible del remitente
+
+def send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
+    """
+    Envía un correo con versión texto y opcionalmente HTML.
+    Lanza excepción si falla.
+    """
+
+    # 1️⃣ Validar credenciales
+    if not SMTP_USER or not SMTP_PASS:
+        raise RuntimeError("SMTP_USER/SMTP_PASS no configurados en .env")
+
+    # 2️⃣ Crear el mensaje de correo
+    msg = EmailMessage()
+    msg["From"] = EMAIL_FROM or SMTP_USER
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(text_body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+
+    # 3️⃣ Conectar al servidor y enviar
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(context=ssl.create_default_context())  # conexión segura
+        s.login(SMTP_USER, SMTP_PASS)                     # autenticación
+        s.send_message(msg)                               # enviar mensaje
+
+----- END FILE: ./app/emailer.py -----
+
+----- BEGIN FILE: ./app/__init__.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/__init__.py
+
+
+----- END FILE: ./app/__init__.py -----
+
+----- BEGIN FILE: ./app/main.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/main.py
+
+# app/main.py
+"""
+Entrypoint principal: inicializa DB, CORS y monta routers.
+"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.db import Base, engine
+from app.routers import users, auth, loads, catalogos  # 👈 nuevo router importado
+
+# Inicializar tablas
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Conexión Carga - Backend",
+    openapi_url="/openapi.json",
+    swagger_ui_parameters={"persistAuthorization": True},  # recuerda el Bearer en /docs
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/health")
+def health():
+    return {"ok": True, "message": "API running"}
+
+# Montar routers
+app.include_router(users.router)
+app.include_router(auth.router)
+app.include_router(loads.router)
+app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_
+
+----- END FILE: ./app/main.py -----
+
+----- BEGIN FILE: ./app/models.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/models.py
+
+# app/models.py
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Numeric, func, text, Interval
+from sqlalchemy.dialects.postgresql import UUID
+from .db import Base
+import uuid
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = {"schema": "conexion_carga"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+                server_default=text("uuid_generate_v4()"), nullable=False)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    first_name = Column(String(120), nullable=False)
+    last_name  = Column(String(120), nullable=False)
+    phone = Column(String(30), nullable=True)
+
+    is_company = Column(Boolean, nullable=False, server_default=text("false"))
+    company_name = Column(String(255), nullable=True)
+    is_premium = Column(Boolean, nullable=False, server_default=text("false"))
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
+
+    points = Column(Integer, nullable=False, server_default=text("0"))
+    referred_by_id = Column(UUID(as_uuid=True),
+                            ForeignKey("conexion_carga.users.id", ondelete="SET NULL"),
+                            nullable=True)
+    referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
+
+class Cargo(Base):
+    __tablename__ = "carga"
+    __table_args__ = {"schema": "conexion_carga"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    empresa_id = Column(UUID(as_uuid=True), nullable=True)
+
+    origen = Column(String, nullable=False)
+    destino = Column(String, nullable=False)
+    tipo_carga = Column(String, nullable=False)
+
+    peso  = Column(Numeric(10, 2), nullable=False)
+    valor = Column(Integer, nullable=False)
+
+    comercial_id = Column(UUID(as_uuid=True),
+                          ForeignKey("conexion_carga.users.id", ondelete="CASCADE"),
+                          nullable=False)
+
+    comercial = Column(String, nullable=True)
+    contacto  = Column(String, nullable=True)
+    observaciones = Column(String, nullable=True)
+
+    conductor = Column(String, nullable=True)
+    # vehiculo_id = Column(String, nullable=True)  # ❌ ELIMINADO
+    tipo_vehiculo = Column(String, nullable=True)
+
+    # ↓ Fechas eliminadas previamente
+    # fecha_salida
+    # fecha_llegada_estimada
+
+    estado = Column(String, nullable=False, server_default=text("'publicado'"))
+    activo = Column(Boolean, nullable=False, server_default=text("true"))
+    premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # horas -> interval
+    duracion_publicacion = Column(Interval, nullable=True, server_default=text("'24 hours'::interval"))
+
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+
+----- END FILE: ./app/models.py -----
+
+----- BEGIN FILE: ./app/routers/auth.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/routers/auth.py
+
+# app/routers/auth.py
+"""
+Rutas de autenticación.
+
+CAMBIOS CLAVE:
+- response_model=TokenOut ahora coincide con el JSON que devolvemos
+  (access_token + token_type + user opcional).
+- Devolvemos también 'user' para que el cliente tenga el perfil inmediatamente
+  (evita un /me justo después de loguear).
+- Usamos response_model_exclude_none=True para no forzar 'user' si no lo quieres incluir.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status, Form
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app import schemas, crud
+from app.security import verify_password, create_access_token  # ya existente
+
+router = APIRouter(prefix="/api/auth", tags=["Auth"])
+
+
+@router.post(
+    "/login",
+    response_model=schemas.TokenOut,
+    response_model_exclude_none=True,
+    summary="Login (JSON)",
+)
+def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):
+    """
+    Inicia sesión con JSON:
+      { "email": "...", "password": "..." }
+
+    Respuesta (coincide con schemas.TokenOut):
+      {
+        "access_token": "<JWT>",
+        "token_type": "bearer",
+        "user": { ...UserOut }   # opcional pero recomendado
+      }
+    """
+    user = crud.get_user_by_email(db, payload.email)
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas.",
+        )
+
+    token = create_access_token({"sub": str(user.id)})
+
+    # Construimos UserOut para no filtrar campos sensibles y mantener
+    # el contrato estable entre back y front.
+    user_out = schemas.UserOut.model_validate(user)
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user_out,
+    }
+
+
+@router.post(
+    "/login-form",
+    response_model=schemas.TokenOut,
+    response_model_exclude_none=True,
+    summary="Login (form-url-encoded)",
+)
+def login_form(
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Variante para facilitar pruebas desde Swagger o formularios
+    application/x-www-form-urlencoded.
+    """
+    user = crud.get_user_by_email(db, email)
+    if not user or not verify_password(password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas.",
+        )
+
+    token = create_access_token({"sub": str(user.id)})
+    user_out = schemas.UserOut.model_validate(user)
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user_out,
+    }
+
+----- END FILE: ./app/routers/auth.py -----
+
+----- BEGIN FILE: ./app/routers/catalogos.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/routers/catalogos.py
+
+# app/routers/catalogos.py
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from typing import List
+from app.db import get_db
+
+router = APIRouter(prefix="/api/catalogos", tags=["Catálogos"])
+
+# Utilidad: limpiar nombre
+def _norm(s: str) -> str:
+    return (s or "").strip()
+
+@router.get("/municipios", response_model=List[str])
+def lista_municipios(
+    limit: int = Query(10000, ge=1, le=50000),
+    db: Session = Depends(get_db),
+):
+    # Solo necesitamos nombres. Filtramos por activo si existe esa columna.
+    sql = text("""
+        SELECT nombre
+        FROM municipio
+        WHERE (activo IS NULL OR activo = TRUE)
+        ORDER BY nombre ASC
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"limit": limit}).fetchall()
+    return [r[0] for r in rows if r[0]]
+
+@router.get("/tipos-carga", response_model=List[str])
+def lista_tipos_carga(
+    limit: int = Query(10000, ge=1, le=50000),
+    db: Session = Depends(get_db),
+):
+    # Tabla: tipo_carga (columna 'nombre' y opcional 'activo')
+    sql = text("""
+        SELECT nombre
+        FROM tipo_carga
+        WHERE (activo IS NULL OR activo = TRUE)
+        ORDER BY nombre ASC
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"limit": limit}).fetchall()
+    return [r[0] for r in rows if r[0]]
+
+@router.get("/tipos-vehiculo", response_model=List[str])
+def lista_tipos_vehiculo(
+    limit: int = Query(10000, ge=1, le=50000),
+    db: Session = Depends(get_db),
+):
+    # Tabla: tipo_vehiculo (columna 'nombre' y opcional 'activo')
+    sql = text("""
+        SELECT nombre
+        FROM tipo_vehiculo
+        WHERE (activo IS NULL OR activo = TRUE)
+        ORDER BY nombre ASC
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"limit": limit}).fetchall()
+    return [r[0] for r in rows if r[0]]
+
+# ─────────────────────────────────────────────────────────
+# Altas "silenciosas": si el usuario escribe uno que no existe
+# ─────────────────────────────────────────────────────────
+
+@router.post("/tipos-carga", status_code=201)
+def crear_tipo_carga(nombre: str, db: Session = Depends(get_db)):
+    nombre = _norm(nombre)
+    if not nombre:
+        raise HTTPException(status_code=400, detail="Nombre requerido")
+    # upsert simple por nombre
+    sql_exists = text("SELECT 1 FROM tipo_carga WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
+    if db.execute(sql_exists, {"n": nombre}).fetchone():
+        return {"created": False, "nombre": nombre}  # ya existía
+    sql_ins = text("INSERT INTO tipo_carga (nombre, activo) VALUES (:n, TRUE)")
+    db.execute(sql_ins, {"n": nombre})
+    db.commit()
+    return {"created": True, "nombre": nombre}
+
+@router.post("/tipos-vehiculo", status_code=201)
+def crear_tipo_vehiculo(nombre: str, db: Session = Depends(get_db)):
+    nombre = _norm(nombre)
+    if not nombre:
+        raise HTTPException(status_code=400, detail="Nombre requerido")
+    sql_exists = text("SELECT 1 FROM tipo_vehiculo WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
+    if db.execute(sql_exists, {"n": nombre}).fetchone():
+        return {"created": False, "nombre": nombre}
+    sql_ins = text("INSERT INTO tipo_vehiculo (nombre, activo) VALUES (:n, TRUE)")
+    db.execute(sql_ins, {"n": nombre})
+    db.commit()
+    return {"created": True, "nombre": nombre}
+
+----- END FILE: ./app/routers/catalogos.py -----
+
+----- BEGIN FILE: ./app/routers/loads.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/routers/loads.py
+
+# app/routers/loads.py
+from fastapi import APIRouter, Depends, status, HTTPException, Query
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.db import get_db
+from app.security import get_current_user
+from app import crud, schemas, models
+
+router = APIRouter(prefix="/api/loads", tags=["Loads"])
+
+@router.post("", response_model=schemas.CargoOut, status_code=status.HTTP_201_CREATED)
+def create_load(payload: schemas.CargoCreate,
+                db: Session = Depends(get_db),
+                current: models.User = Depends(get_current_user)):
+    return crud.create_cargo(db, payload, comercial_id=current.id)
+
+@router.get("/public", response_model=List[schemas.CargoOut])
+def list_public(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return crud.get_public_cargas(db, skip=skip, limit=limit)
+
+@router.get("/mine", response_model=List[schemas.CargoOut])
+def list_my_loads(status: str = Query("all", pattern="^(all|published|expired)$"),
+                  skip: int = 0, limit: int = 100,
+                  db: Session = Depends(get_db),
+                  current: models.User = Depends(get_current_user)):
+    return crud.get_my_cargas(db, current.id, status=status, skip=skip, limit=limit)
+
+@router.get("/{load_id}", response_model=schemas.CargoOut)
+def get_one(load_id: str, db: Session = Depends(get_db)):
+    obj = crud.get_cargo(db, load_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Viaje no encontrado.")
+    return obj
+
+@router.post("/{load_id}/expire", response_model=schemas.CargoOut)
+def expire(load_id: str,
+           db: Session = Depends(get_db),
+           current: models.User = Depends(get_current_user)):
+    obj = crud.expire_cargo(db, load_id, owner_id=current.id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="No encontrado o sin permisos.")
+    return obj
+
+----- END FILE: ./app/routers/loads.py -----
+
+----- BEGIN FILE: ./app/routers/users.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/routers/users.py
+
+# app/routers/users.py
+"""
+Módulo de rutas de usuarios.
+Contiene:
+- registro
+- verificación de email
+- actualización
+- /me (perfil del usuario con token)
+"""
+from __future__ import annotations
+import os, time, random, string
+from typing import Dict
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.orm import Session
+
+from app import crud, schemas, models  # ⬅️ (añadido: models para buscar referidor por id)
+from app.db import get_db
+from app.security import get_password_hash, get_current_user
+from app.services.emailer import send_email
+
+# === Config ===
+EMAIL_CODE_LENGTH = int(os.getenv("EMAIL_CODE_LENGTH", "6"))
+EMAIL_CODE_TTL_MINUTES = int(os.getenv("EMAIL_CODE_TTL_MINUTES", "5"))
+EMAIL_RESEND_COOLDOWN_SECONDS = int(os.getenv("EMAIL_RESEND_COOLDOWN_SECONDS", "45"))
+
+# === Stores in-memory (demo) ===
+_verif_store: Dict[str, dict] = {}
+_last_send_epoch: Dict[str, float] = {}
+
+def _gen_code(n: int) -> str:
+    return "".join(random.choices(string.digits, k=n))
+
+router = APIRouter(prefix="/api/users", tags=["Users"])
+
+# ==== Modelos internos ====
+class VerifyIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=1, max_length=64)
+
+@router.get("", response_model=list[schemas.UserOut])
+def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return crud.get_users(db, skip=skip, limit=limit)
+
+@router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
+def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # email duplicado
+    existing = crud.get_user_by_email(db, user.email)
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # validar contraseñas iguales
+    if user.password != user.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    # resolver referidor (OPCIONAL) -> referrer_email viene en schemas.UserCreate
+    ref_id = None
+    if user.referrer_email:
+        ref = crud.get_user_by_email(db, str(user.referrer_email))
+        if not ref:
+            raise HTTPException(status_code=400, detail="Referrer email does not exist")
+        ref_id = ref.id  # UUID del referidor
+
+    # crear usuario con hash y referidor
+    pw_hash = get_password_hash(user.password)
+    created = crud.create_user(db, user, pw_hash, referred_by_id=ref_id)  # ⬅️ pasamos ref_id
+    created.active = False
+    db.add(created); db.commit(); db.refresh(created)
+
+    # cooldown para reenvío de código
+    now = time.time()
+    last = _last_send_epoch.get(user.email, 0.0)
+    if now - last < EMAIL_RESEND_COOLDOWN_SECONDS:
+        raise HTTPException(status_code=429, detail="Wait before resending the code")
+
+    # generar código y enviar email
+    code = _gen_code(EMAIL_CODE_LENGTH)
+    subject = "Verification code - Conexión Carga"
+    text = f"Hola,\nTu código de verificación es: {code}\nVence en {EMAIL_CODE_TTL_MINUTES} minutos."
+    html = f"""
+        <p>Hola,</p>
+        <p>Tu código de verificación es:
+           <strong style='font-size:20px;letter-spacing:2px'>{code}</strong></p>
+        <p>Vence en <strong>{EMAIL_CODE_TTL_MINUTES}</strong> minutos.</p>
+        <p style='color:#666;font-size:12px'>Si no solicitaste este código, ignora este correo.</p>
+    """
+    try:
+        send_email(user.email, subject, text, html)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Email send failed: {e}")
+
+    _verif_store[user.email] = {
+        "code": code,
+        "expires": time.time() + (EMAIL_CODE_TTL_MINUTES * 60),
+        "attempts": 0,
+    }
+    _last_send_epoch[user.email] = now
+    return created
+
+@router.post("/verify")
+def verify_email(payload: VerifyIn, db: Session = Depends(get_db)):
+    rec = _verif_store.get(payload.email)
+    if not rec:
+        raise HTTPException(status_code=400, detail="No verification pending for this email")
+
+    if time.time() > rec["expires"]:
+        _verif_store.pop(payload.email, None)
+        raise HTTPException(status_code=400, detail="Code expired")
+
+    if str(payload.code).strip() != str(rec["code"]):
+        rec["attempts"] = rec.get("attempts", 0) + 1
+        if rec["attempts"] >= 5:
+            _verif_store.pop(payload.email, None)
+            raise HTTPException(status_code=400, detail="Too many invalid attempts")
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    user = crud.get_user_by_email(db, payload.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    was_active = bool(user.active)
+    user.active = True
+
+    # ⬇️ premiar referidor UNA vez (cuando el usuario se activa por primera vez)
+    if not was_active and user.referred_by_id and not getattr(user, "referral_rewarded", False):
+        # buscar referidor por UUID
+        ref = db.query(models.User).get(user.referred_by_id)
+        if ref:
+            ref.points = int(ref.points or 0) + 1
+            user.referral_rewarded = True
+
+    db.add(user); db.commit(); db.refresh(user)
+
+    _verif_store.pop(payload.email, None)
+    return {"status": "ok", "message": "Email verified. User activated.", "user_id": str(user.id)}
+
+@router.get("/me", response_model=schemas.UserOut)
+def get_me(current: schemas.UserOut = Depends(get_current_user)):
+    """Devuelve el perfil del usuario autenticado (token en Authorization: Bearer)."""
+    return current
+
+@router.put("/{user_id}", response_model=schemas.UserOut)
+def update_user(user_id: UUID, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+    if user.email:
+        existing = crud.get_user_by_email(db, user.email)
+        if existing and existing.id != user_id:
+            raise HTTPException(status_code=400, detail="Email already in use")
+    updated = crud.update_user(db, user_id, user)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated
+
+----- END FILE: ./app/routers/users.py -----
+
+----- BEGIN FILE: ./app/schemas.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/schemas.py
+
+# app/schemas.py
+from __future__ import annotations
+from typing import Optional
+from pydantic import BaseModel, EmailStr, Field
+from uuid import UUID
+from datetime import datetime
+
+# ========= USERS =========
+
+class UserBase(BaseModel):
+    email: EmailStr
+    first_name: str = Field(min_length=1)
+    last_name: str = Field(min_length=1)
+    phone: Optional[str] = None
+    is_company: bool = False
+    company_name: Optional[str] = None
+
+class UserCreate(UserBase):
+    password: str = Field(min_length=8)
+    confirm_password: str
+    referrer_email: Optional[EmailStr] = None
+
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    is_company: Optional[bool] = None
+    company_name: Optional[str] = None
+    password: Optional[str] = None
+
+class UserOut(UserBase):
+    id: UUID
+    active: bool
+    points: int = 0
+    is_premium: bool = False
+
+    class Config:
+        from_attributes = True
+
+# ========= AUTH =========
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: Optional[UserOut] = None
+
+# ========= CARGA =========
+class CargoBase(BaseModel):
+    empresa_id: Optional[UUID] = None
+    origen: str
+    destino: str
+    tipo_carga: str
+    peso: float
+    valor: int
+    # extras
+    comercial: Optional[str] = None
+    contacto: Optional[str] = None
+    observaciones: Optional[str] = None
+    conductor: Optional[str] = None
+    # vehiculo_id: Optional[str] = None  # ❌ ELIMINADO
+    tipo_vehiculo: Optional[str] = None
+
+    # duración en horas
+    duration_hours: int = Field(default=24, ge=1, le=168)
+
+class CargoCreate(CargoBase):
+    pass
+
+class CargoOut(CargoBase):
+    id: UUID
+    comercial_id: UUID
+    estado: str
+    activo: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class CatalogoIn(BaseModel):
+    nombre: str
+
+class CatalogoOut(BaseModel):
+    id: int
+    nombre: str
+    activo: bool
+
+    class Config:
+        from_attributes = True
+
+----- END FILE: ./app/schemas.py -----
+
+----- BEGIN FILE: ./app/security.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/security.py
+
+# app/security.py
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from uuid import UUID
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app import crud, models
+
+# =========================
+# Config JWT
+# =========================
+SECRET_KEY = "super-secret-key-change-me"        # <-- cámbiala en producción
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12            # 12h
+
+# =========================
+# Password hashing
+# =========================
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    try:
+        return pwd_context.verify(plain_password, password_hash)
+    except Exception:
+        return False
+
+# =========================
+# Token helpers
+# =========================
+def create_access_token(data: dict, expires_minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(tz=timezone.utc) + timedelta(minutes=expires_minutes)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")  # usado por Swagger sólo si usas /login-form
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.User:
+    """Lee el token Bearer, decodifica y recupera el usuario de BD."""
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        sub = payload.get("sub")
+        if not sub:
+            raise credentials_exc
+        user_id = UUID(str(sub))
+    except JWTError:
+        raise credentials_exc
+
+    user = crud.get_user(db, user_id)
+    if not user:
+        raise credentials_exc
+    return user
+
+----- END FILE: ./app/security.py -----
+
+----- BEGIN FILE: ./app/services/emailer.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/services/emailer.py
+
+# app/services/emailer.py
+import os
+import ssl
+import smtplib
+from email.message import EmailMessage
+
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
+
+def send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
+    if not SMTP_USER or not SMTP_PASS:
+        raise RuntimeError("SMTP_USER/SMTP_PASS no configurados en .env")
+
+    msg = EmailMessage()
+    msg["From"] = EMAIL_FROM or SMTP_USER
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(text_body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(context=ssl.create_default_context())
+        s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
+
+----- END FILE: ./app/services/emailer.py -----
+
+----- BEGIN FILE: ./app/services/__init__.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/app/services/__init__.py
+
+
+----- END FILE: ./app/services/__init__.py -----
+
+----- BEGIN FILE: ./backups/security_2025-10-21_155406.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/backups/security_2025-10-21_155406.py
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+# app/security.py
+"""
+Utilidades de seguridad:
+- Hash/verify de contraseñas (bcrypt)
+- Creación y verificación de JWT (HS256)
+- Dependencia `get_current_user` para rutas protegidas
+"""
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+from typing import Optional
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app import crud, schemas
+
+# === Config de JWT ===
+JWT_SECRET = os.getenv("JWT_SECRET", "change_me_please")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+ALGORITHM = "HS256"
+
+# === Password hashing (bcrypt) ===
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    """Genera hash seguro para almacenar en DB."""
+    return pwd_context.hash(password)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    """Compara contraseña en texto con su hash."""
+    return pwd_context.verify(plain, hashed)
+
+# === OAuth bearer (lee "Authorization: Bearer <token>") ===
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")  # solo para el flow de docs
+
+def create_access_token(data: dict, expires_minutes: Optional[int] = None) -> str:
+    """Crea un JWT firmando `data` con expiración."""
+    to_encode = data.copy()
+    exp = datetime.utcnow() + timedelta(minutes=expires_minutes or JWT_EXPIRE_MINUTES)
+    to_encode.update({"exp": exp})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> schemas.UserOut:
+    """Decodifica el token y devuelve el usuario actual (400/401 si algo falla)."""
+    cred_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+        email: Optional[str] = payload.get("sub")
+        if not email:
+            raise cred_exc
+    except JWTError:
+        raise cred_exc
+
+    user = crud.get_user_by_email(db, email)
+    if not user:
+        raise cred_exc
+    if not user.active:
+        raise HTTPException(status_code=403, detail="User is not active")
+
+    # devolvemos el esquema limpio
+    return schemas.UserOut.model_validate(user, from_attributes=True)
+
+----- END FILE: ./backups/security_2025-10-21_155406.py -----
+
+----- BEGIN FILE: ./backups/security_2025-10-21_160647.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/backups/security_2025-10-21_160647.py
+
+# app/security.py
+# ============================================================
+# Utilidades de seguridad:
+# - Hash y verificación de contraseñas (passlib/bcrypt)
+# - Creación de tokens JWT
+# ============================================================
+
+from __future__ import annotations  # <= Debe ir PRIMERO en el archivo
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict
+
+from jose import jwt
+from passlib.context import CryptContext
+
+# ------------------------------------------------------------
+# Config
+# ------------------------------------------------------------
+JWT_SECRET = os.getenv("JWT_SECRET", "change_me_please")
+JWT_ALG = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+
+# Contexto de passlib para bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# ------------------------------------------------------------
+# Contraseñas
+# ------------------------------------------------------------
+def get_password_hash(password: str) -> str:
+    """Devuelve el hash seguro de la contraseña."""
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    """Compara contraseña en texto plano vs. hash almacenado."""
+    return pwd_context.verify(plain_password, password_hash)
+
+# ------------------------------------------------------------
+# JWT
+# ------------------------------------------------------------
+def create_access_token(
+    subject: str | int,
+    expires_minutes: int | None = None,
+    extra_claims: Dict[str, Any] | None = None,
+) -> str:
+    """
+    Crea un JWT de acceso.
+    - subject: normalmente el ID del usuario
+    - expires_minutes: por defecto toma JWT_EXPIRE_MINUTES
+    - extra_claims: claims adicionales que quieras meter al token
+    """
+    if expires_minutes is None:
+        expires_minutes = JWT_EXPIRE_MINUTES
+
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=expires_minutes)
+
+    payload: Dict[str, Any] = {
+        "sub": str(subject),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+
+    if extra_claims:
+        payload.update(extra_claims)
+
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return token
+
+----- END FILE: ./backups/security_2025-10-21_160647.py -----
+
+----- BEGIN FILE: ./backups/security_2025-10-21_160708.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/backups/security_2025-10-21_160708.py
+
+# app/security.py
+# ============================================================
+# Utilidades de seguridad:
+# - Hash y verificación de contraseñas (passlib/bcrypt)
+# - Creación/decodificación de JWT
+# - Dependencia FastAPI: get_current_user
+# ============================================================
+
+from __future__ import annotations  # 👈 Debe ser la PRIMERA línea real
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+
+# Para la dependencia get_current_user
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+
+# ------------------------------------------------------------
+# Config
+# ------------------------------------------------------------
+JWT_SECRET = os.getenv("JWT_SECRET", "change_me_please")
+JWT_ALG = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+
+# OAuth2 password flow (solo para que Swagger sepa el endpoint de login)
+# No afecta al funcionamiento real del decode.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+# Contexto de passlib para bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# ------------------------------------------------------------
+# Contraseñas
+# ------------------------------------------------------------
+def get_password_hash(password: str) -> str:
+    """Devuelve el hash seguro de la contraseña."""
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    """Compara contraseña en texto plano vs. hash almacenado."""
+    return pwd_context.verify(plain_password, password_hash)
+
+
+# ------------------------------------------------------------
+# JWT
+# ------------------------------------------------------------
+def create_access_token(
+    subject: str | int,
+    expires_minutes: Optional[int] = None,
+    extra_claims: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Crea un JWT de acceso.
+    - subject: normalmente el ID del usuario
+    - expires_minutes: por defecto toma JWT_EXPIRE_MINUTES
+    - extra_claims: claims adicionales que quieras meter al token
+    """
+    if expires_minutes is None:
+        expires_minutes = JWT_EXPIRE_MINUTES
+
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=expires_minutes)
+
+    payload: Dict[str, Any] = {
+        "sub": str(subject),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return token
+
+
+def decode_token(token: str) -> Dict[str, Any]:
+    """Decodifica el JWT y devuelve el payload o lanza HTTP 401/403."""
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except JWTError:
+        raise credentials_exc
+    if not isinstance(payload, dict) or "sub" not in payload:
+        raise credentials_exc
+    return payload
+
+
+# ------------------------------------------------------------
+# Dependencia: usuario autenticado desde el token
+# ------------------------------------------------------------
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(lambda: __import__("app.db", fromlist=["get_db"]).db.get_db().__next__()),
+):
+    """
+    Devuelve el usuario autenticado a partir del token Bearer.
+    Importamos `get_db` y `crud` de forma perezosa para evitar ciclos.
+    """
+    # Decodificar token
+    payload = decode_token(token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+
+    # Import lazy para evitar ciclos
+    crud = __import__("app.crud", fromlist=["get_user"])  # type: ignore
+
+    # Traer user por ID (UUID en tu modelo). Aceptamos str/int.
+    try:
+        from uuid import UUID
+        uid = UUID(str(user_id))
+    except Exception:
+        # Si tu clave primaria no es UUID, elimina este bloque y usa str(user_id).
+        uid = user_id  # type: ignore
+
+    user = crud.get_user(db, uid)  # type: ignore
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
+
+----- END FILE: ./backups/security_2025-10-21_160708.py -----
+
+----- BEGIN FILE: ./backups/security_2025-10-21_161715.py -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/backups/security_2025-10-21_161715.py
+
+# app/security.py
+# ============================================================
+# Utilidades de seguridad:
+# - Hash y verificación de contraseñas (passlib/bcrypt)
+# - Creación/decodificación de JWT
+# - Dependencia FastAPI: get_current_user
+# ============================================================
+
+from __future__ import annotations  # 👈 Debe ser la PRIMERA línea real
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+
+# Para la dependencia get_current_user
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+
+# ------------------------------------------------------------
+# Config
+# ------------------------------------------------------------
+JWT_SECRET = os.getenv("JWT_SECRET", "change_me_please")
+JWT_ALG = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+
+# OAuth2 password flow (solo para que Swagger sepa el endpoint de login)
+# No afecta al funcionamiento real del decode.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+# Contexto de passlib para bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# ------------------------------------------------------------
+# Contraseñas
+# ------------------------------------------------------------
+def get_password_hash(password: str) -> str:
+    """Devuelve el hash seguro de la contraseña."""
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    """Compara contraseña en texto plano vs. hash almacenado."""
+    return pwd_context.verify(plain_password, password_hash)
+
+
+# ------------------------------------------------------------
+# JWT
+# ------------------------------------------------------------
+def create_access_token(
+    subject: str | int,
+    expires_minutes: Optional[int] = None,
+    extra_claims: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Crea un JWT de acceso.
+    - subject: normalmente el ID del usuario
+    - expires_minutes: por defecto toma JWT_EXPIRE_MINUTES
+    - extra_claims: claims adicionales que quieras meter al token
+    """
+    if expires_minutes is None:
+        expires_minutes = JWT_EXPIRE_MINUTES
+
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=expires_minutes)
+
+    payload: Dict[str, Any] = {
+        "sub": str(subject),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return token
+
+
+def decode_token(token: str) -> Dict[str, Any]:
+    """Decodifica el JWT y devuelve el payload o lanza HTTP 401/403."""
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except JWTError:
+        raise credentials_exc
+    if not isinstance(payload, dict) or "sub" not in payload:
+        raise credentials_exc
+    return payload
+
+
+# ------------------------------------------------------------
+# Dependencia: usuario autenticado desde el token
+# ------------------------------------------------------------
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(lambda: __import__("app.db", fromlist=["get_db"]).db.get_db().__next__()),
+):
+    """
+    Devuelve el usuario autenticado a partir del token Bearer.
+    Importamos `get_db` y `crud` de forma perezosa para evitar ciclos.
+    """
+    # Decodificar token
+    payload = decode_token(token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+
+    # Import lazy para evitar ciclos
+    crud = __import__("app.crud", fromlist=["get_user"])  # type: ignore
+
+    # Traer user por ID (UUID en tu modelo). Aceptamos str/int.
+    try:
+        from uuid import UUID
+        uid = UUID(str(user_id))
+    except Exception:
+        # Si tu clave primaria no es UUID, elimina este bloque y usa str(user_id).
+        uid = user_id  # type: ignore
+
+    user = crud.get_user(db, uid)  # type: ignore
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
+
+----- END FILE: ./backups/security_2025-10-21_161715.py -----
+
+----- BEGIN FILE: ./db_schema_all.sql -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/db_schema_all.sql
+
+
+----- END FILE: ./db_schema_all.sql -----
+
+----- BEGIN FILE: ./dump_app.sh -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/dump_app.sh
+
+#!/usr/bin/env bash
+set -euo pipefail
+sudo apt-get update && sudo apt-get install -y tree >/dev/null 2>&1 || true
+{
+  echo "# Snapshot: $(date -Iseconds)"
+  echo "## Árbol"; tree -a app -I '__pycache__|*.pyc|.git|backups'
+  echo; echo "## requirements.txt"; [ -f requirements.txt ] && sed 's/^/    /' requirements.txt || echo "    (no existe)"
+  echo; echo "## .py files"
+  find app -type f -name '*.py' -not -path '*/__pycache__/*' -print0 | sort -z | while IFS= read -r -d '' f; do
+    echo "-----8<----- FILE: $f -----"; nl -ba "$f"; echo "-----8<----- END FILE: $f -----"
+  done
+} > app_completa.txt
+echo "Generado app_completa.txt"
+
+----- END FILE: ./dump_app.sh -----
+
+----- BEGIN FILE: ./requirements.txt -----
+ABSOLUTE PATH: /opt/apps/conexion_carga_back/requirements.txt
+
+fastapi>=0.110,<1
+uvicorn[standard]>=0.23
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+pydantic>=2,<3
+
+----- END FILE: ./requirements.txt -----
+

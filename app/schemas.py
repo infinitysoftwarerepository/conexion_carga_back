@@ -1,9 +1,10 @@
 # app/schemas.py
 from __future__ import annotations
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
 from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field
 
 # ========= USERS =========
 
@@ -39,6 +40,7 @@ class UserOut(UserBase):
         from_attributes = True
 
 # ========= AUTH =========
+
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
@@ -49,6 +51,7 @@ class TokenOut(BaseModel):
     user: Optional[UserOut] = None
 
 # ========= CARGA =========
+
 class CargoBase(BaseModel):
     empresa_id: Optional[UUID] = None
     origen: str
@@ -61,7 +64,7 @@ class CargoBase(BaseModel):
     contacto: Optional[str] = None
     observaciones: Optional[str] = None
     conductor: Optional[str] = None
-    # vehiculo_id: Optional[str] = None  # ❌ ELIMINADO
+    # vehiculo_id: Optional[str] = None  # ❌ eliminado
     tipo_vehiculo: Optional[str] = None
 
     # duración en horas
@@ -69,6 +72,20 @@ class CargoBase(BaseModel):
 
 class CargoCreate(CargoBase):
     pass
+
+class CargoUpdate(BaseModel):
+    empresa_id: Optional[UUID] = None
+    origen: Optional[str] = None
+    destino: Optional[str] = None
+    tipo_carga: Optional[str] = None
+    peso: Optional[float] = None
+    valor: Optional[int] = None
+    comercial: Optional[str] = None
+    contacto: Optional[str] = None
+    observaciones: Optional[str] = None
+    conductor: Optional[str] = None
+    tipo_vehiculo: Optional[str] = None
+    duration_hours: Optional[int] = Field(default=None, ge=1, le=168)
 
 class CargoOut(CargoBase):
     id: UUID
@@ -80,6 +97,8 @@ class CargoOut(CargoBase):
 
     class Config:
         from_attributes = True
+
+# ========= CATÁLOGOS =========
 
 class CatalogoIn(BaseModel):
     nombre: str

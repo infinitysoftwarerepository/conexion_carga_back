@@ -2,14 +2,59 @@
 from __future__ import annotations
 from typing import List, Optional
 from uuid import UUID
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
+
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 from . import models, schemas
 from .security import get_password_hash
 
-# ---------- USERS ----------
+# =====================================================
+# Helpers internos
+# =====================================================
+
+def _expire_if_needed(db: Session, items: List[models.Cargo]) -> None:
+    """
+    Recorre la lista de cargas y, si ya se pasó created_at + duracion_publicacion
+    para un viaje ACTIVO, lo marca como inactivo (vencido).
+    NO toca la columna 'estado' para no violar la constraint ck_carga_estado.
+    """
+    if not items:
+        return
+
+    now = datetime.now(timezone.utc)
+    changed = False
+
+    for c in items:
+        # si ya está inactivo, no hacemos nada
+        if not getattr(c, "activo", True):
+            continue
+
+        duration = getattr(c, "duracion_publicacion", None)
+        created = getattr(c, "created_at", None)
+        if not duration or not created:
+            continue
+
+        # normalizar a UTC para comparar
+        if created.tzinfo is None:
+            created_utc = created.replace(tzinfo=timezone.utc)
+        else:
+            created_utc = created.astimezone(timezone.utc)
+
+        expires_at = created_utc + duration
+        if expires_at <= now:
+            # solo cambiamos 'activo'
+            c.activo = False
+            changed = True
+
+    if changed:
+        db.commit()
+
+# =====================================================
+# USERS
+# =====================================================
+
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
     return (
         db.query(models.User)
@@ -58,7 +103,10 @@ def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Opti
     db.add(u); db.commit(); db.refresh(u)
     return u
 
-# ---------- CARGAS ----------
+# =====================================================
+# CARGAS
+# =====================================================
+
 def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
     obj = models.Cargo(
         empresa_id=data.empresa_id,
@@ -85,31 +133,94 @@ def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:
     return db.query(models.Cargo).filter(models.Cargo.id == cargo_id).first()
 
 def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
-    return (
+    """
+    Devuelve solo viajes publicados y ACTIVOS.
+    Antes de devolver, revisa si alguno ya venció (created_at + duracion_publicacion)
+    y, si es así, lo marca como inactivo.
+    """
+    items = (
         db.query(models.Cargo)
         .filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
         .order_by(models.Cargo.created_at.desc())
         .offset(skip).limit(limit).all()
     )
 
+    _expire_if_needed(db, items)
+
+    # filtramos por si alguno cambió a inactivo dentro de esta misma llamada
+    return [c for c in items if c.activo]
+
 def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=100):
-    q = db.query(models.Cargo).filter(models.Cargo.comercial_id == comercial_id)
-    if status == "published":
-        q = q.filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
-    elif status == "expired":
-        q = q.filter(or_(models.Cargo.estado == "caducado",
-                         models.Cargo.estado == "eliminado",
-                         models.Cargo.activo.is_(False)))
-    return (
-        q.order_by(models.Cargo.created_at.desc())
-         .offset(skip).limit(limit).all()
+    """
+    Viajes del comercial.
+    - all: todos (activos + inactivos)
+    - published: solo activos
+    - expired: solo inactivos (vencidos / eliminados lógicamente)
+    """
+    items = (
+        db.query(models.Cargo)
+        .filter(models.Cargo.comercial_id == comercial_id)
+        .order_by(models.Cargo.created_at.desc())
+        .offset(skip).limit(limit).all()
     )
 
+    _expire_if_needed(db, items)
+
+    if status == "published":
+        return [c for c in items if c.activo]
+    if status == "expired":
+        return [c for c in items if not c.activo]
+    return items
+
 def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models.Cargo]:
+    """
+    Soft-delete / vencimiento manual: marca el viaje como inactivo.
+    NO cambia 'estado' para respetar la constraint ck_carga_estado.
+    """
     c = get_cargo(db, cargo_id)
     if not c or c.comercial_id != owner_id:
         return None
-    c.estado = "caducado"
     c.activo = False
+    db.add(c); db.commit(); db.refresh(c)
+    return c
+
+# 🔵 Reutilizar / republicar viaje (update parcial)
+def reactivate_cargo(
+    db: Session,
+    cargo_id: UUID,
+    owner_id: UUID,
+    data: schemas.CargoUpdate,
+) -> Optional[models.Cargo]:
+    c = get_cargo(db, cargo_id)
+    if not c or c.comercial_id != owner_id:
+        return None
+
+    # actualizar campos si vienen en el payload
+    for attr in (
+        "empresa_id",
+        "origen",
+        "destino",
+        "tipo_carga",
+        "peso",
+        "valor",
+        "comercial",
+        "contacto",
+        "observaciones",
+        "conductor",
+        "tipo_vehiculo",
+    ):
+        val = getattr(data, attr, None)
+        if val is not None:
+            setattr(c, attr, val)
+
+    hours = data.duration_hours or 24
+    c.duracion_publicacion = timedelta(hours=int(hours))
+
+    # republicar => solo activar de nuevo y refrescar fechas
+    c.activo = True
+    now = datetime.utcnow()
+    c.created_at = now
+    c.updated_at = now
+
     db.add(c); db.commit(); db.refresh(c)
     return c
