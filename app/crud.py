@@ -14,6 +14,7 @@ from .security import get_password_hash
 # Helpers internos
 # =====================================================
 
+
 def _expire_if_needed(db: Session, items: List[models.Cargo]) -> None:
     """
     Recorre la lista de cargas y, si ya se pasó created_at + duracion_publicacion
@@ -51,19 +52,25 @@ def _expire_if_needed(db: Session, items: List[models.Cargo]) -> None:
     if changed:
         db.commit()
 
+
 # =====================================================
 # USERS
 # =====================================================
+
 
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
     return (
         db.query(models.User)
         .order_by(models.User.created_at.desc())
-        .offset(skip).limit(limit).all()
+        .offset(skip)
+        .limit(limit)
+        .all()
     )
+
 
 def get_user(db: Session, user_id: UUID) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.id == user_id).first()
+
 
 def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
     return (
@@ -72,8 +79,13 @@ def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
         .first()
     )
 
-def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str,
-                referred_by_id: Optional[UUID] = None) -> models.User:
+
+def create_user(
+    db: Session,
+    user_in: schemas.UserCreate,
+    password_hash: str,
+    referred_by_id: Optional[UUID] = None,
+) -> models.User:
     u = models.User(
         email=user_in.email.strip(),
         first_name=user_in.first_name,
@@ -85,14 +97,19 @@ def create_user(db: Session, user_in: schemas.UserCreate, password_hash: str,
         active=False,
         referred_by_id=referred_by_id,
     )
-    db.add(u); db.commit(); db.refresh(u)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
     return u
 
-def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Optional[models.User]:
+
+def update_user(
+    db: Session, user_id: UUID, user_in: schemas.UserUpdate
+) -> Optional[models.User]:
     u = get_user(db, user_id)
     if not u:
         return None
-    for attr in ("email","first_name","last_name","phone","is_company","company_name"):
+    for attr in ("email", "first_name", "last_name", "phone", "is_company", "company_name"):
         val = getattr(user_in, attr, None)
         if val is not None:
             setattr(u, attr, val)
@@ -100,14 +117,21 @@ def update_user(db: Session, user_id: UUID, user_in: schemas.UserUpdate) -> Opti
         u.company_name = None
     if user_in.password:
         u.password_hash = get_password_hash(user_in.password)
-    db.add(u); db.commit(); db.refresh(u)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
     return u
+
 
 # =====================================================
 # CARGAS
 # =====================================================
 
+
 def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
+    # 🟢 Por si quieres ver en logs qué llegó realmente:
+    # print(f"[CREATE_CARGO] duration_hours payload = {data.duration_hours}")
+
     obj = models.Cargo(
         empresa_id=data.empresa_id,
         origen=data.origen,
@@ -126,11 +150,15 @@ def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
         activo=True,
         premium_trip=getattr(data, "premium_trip", False),
     )
-    db.add(obj); db.commit(); db.refresh(obj)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
     return obj
+
 
 def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:
     return db.query(models.Cargo).filter(models.Cargo.id == cargo_id).first()
+
 
 def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
     """
@@ -142,7 +170,9 @@ def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
         db.query(models.Cargo)
         .filter(models.Cargo.estado == "publicado", models.Cargo.activo.is_(True))
         .order_by(models.Cargo.created_at.desc())
-        .offset(skip).limit(limit).all()
+        .offset(skip)
+        .limit(limit)
+        .all()
     )
 
     _expire_if_needed(db, items)
@@ -150,7 +180,10 @@ def get_public_cargas(db: Session, skip=0, limit=100) -> List[models.Cargo]:
     # filtramos por si alguno cambió a inactivo dentro de esta misma llamada
     return [c for c in items if c.activo]
 
-def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=100):
+
+def get_my_cargas(
+    db: Session, comercial_id, status: str = "all", skip=0, limit=100
+):
     """
     Viajes del comercial.
     - all: todos (activos + inactivos)
@@ -161,7 +194,9 @@ def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=
         db.query(models.Cargo)
         .filter(models.Cargo.comercial_id == comercial_id)
         .order_by(models.Cargo.created_at.desc())
-        .offset(skip).limit(limit).all()
+        .offset(skip)
+        .limit(limit)
+        .all()
     )
 
     _expire_if_needed(db, items)
@@ -172,6 +207,7 @@ def get_my_cargas(db: Session, comercial_id, status: str = "all", skip=0, limit=
         return [c for c in items if not c.activo]
     return items
 
+
 def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models.Cargo]:
     """
     Soft-delete / vencimiento manual: marca el viaje como inactivo.
@@ -181,8 +217,11 @@ def expire_cargo(db: Session, cargo_id: UUID, owner_id: UUID) -> Optional[models
     if not c or c.comercial_id != owner_id:
         return None
     c.activo = False
-    db.add(c); db.commit(); db.refresh(c)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
     return c
+
 
 # 🔵 Reutilizar / republicar viaje (update parcial)
 def reactivate_cargo(
@@ -222,5 +261,7 @@ def reactivate_cargo(
     c.created_at = now
     c.updated_at = now
 
-    db.add(c); db.commit(); db.refresh(c)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
     return c

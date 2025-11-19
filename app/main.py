@@ -27,9 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 def health():
     return {"ok": True, "message": "API running"}
+
 
 # Montar routers
 app.include_router(users.router)

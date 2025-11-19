@@ -8,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 # ========= USERS =========
 
+
 class UserBase(BaseModel):
     email: EmailStr
     first_name: str = Field(min_length=1)
@@ -16,10 +17,12 @@ class UserBase(BaseModel):
     is_company: bool = False
     company_name: Optional[str] = None
 
+
 class UserCreate(UserBase):
     password: str = Field(min_length=8)
     confirm_password: str
     referrer_email: Optional[EmailStr] = None
+
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -30,6 +33,7 @@ class UserUpdate(BaseModel):
     company_name: Optional[str] = None
     password: Optional[str] = None
 
+
 class UserOut(UserBase):
     id: UUID
     active: bool
@@ -39,18 +43,23 @@ class UserOut(UserBase):
     class Config:
         from_attributes = True
 
+
 # ========= AUTH =========
+
 
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+
 
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: Optional[UserOut] = None
 
+
 # ========= CARGA =========
+
 
 class CargoBase(BaseModel):
     empresa_id: Optional[UUID] = None
@@ -67,11 +76,16 @@ class CargoBase(BaseModel):
     # vehiculo_id: Optional[str] = None  # ❌ eliminado
     tipo_vehiculo: Optional[str] = None
 
-    # duración en horas
+    # 🟢 nuevo: reflejar premium_trip igual que en el modelo
+    premium_trip: bool = False
+
+    # duración en horas (frontend habla en horas, backend guarda interval)
     duration_hours: int = Field(default=24, ge=1, le=168)
+
 
 class CargoCreate(CargoBase):
     pass
+
 
 class CargoUpdate(BaseModel):
     empresa_id: Optional[UUID] = None
@@ -86,6 +100,8 @@ class CargoUpdate(BaseModel):
     conductor: Optional[str] = None
     tipo_vehiculo: Optional[str] = None
     duration_hours: Optional[int] = Field(default=None, ge=1, le=168)
+    premium_trip: Optional[bool] = None  # 🟢 por si luego quieres editar esto
+
 
 class CargoOut(CargoBase):
     id: UUID
@@ -98,10 +114,13 @@ class CargoOut(CargoBase):
     class Config:
         from_attributes = True
 
+
 # ========= CATÁLOGOS =========
+
 
 class CatalogoIn(BaseModel):
     nombre: str
+
 
 class CatalogoOut(BaseModel):
     id: int
