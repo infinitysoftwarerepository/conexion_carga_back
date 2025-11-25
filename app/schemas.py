@@ -16,6 +16,7 @@ class UserBase(BaseModel):
     phone: Optional[str] = None
     is_company: bool = False
     company_name: Optional[str] = None
+    is_driver: bool = False
 
 
 class UserCreate(UserBase):
@@ -31,6 +32,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     is_company: Optional[bool] = None
     company_name: Optional[str] = None
+    is_driver: Optional[bool] = None 
     password: Optional[str] = None
 
 

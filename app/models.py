@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from .db import Base
 import uuid
-from datetime import timedelta  # 🟢 usado en la propiedad duration_hours
+from datetime import timedelta, datetime  # 🟢 usado en la propiedad duration_hours
 
 
 class User(Base):
@@ -36,6 +36,7 @@ class User(Base):
 
     is_company = Column(Boolean, nullable=False, server_default=text("false"))
     company_name = Column(String(255), nullable=True)
+    is_driver = Column(Boolean, nullable=False, server_default=text("false"))
     is_premium = Column(Boolean, nullable=False, server_default=text("false"))
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(
@@ -48,8 +49,17 @@ class User(Base):
         ForeignKey("conexion_carga.users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
+    
+class VerificationCode(Base):
+    __tablename__ = "verification_codes"
+    __table_args__ = {"schema": "conexion_carga"}
 
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("conexion_carga.users.id", ondelete="CASCADE"))
+    code = Column(String(6), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False, default=lambda: datetime.utcnow() + timedelta(minutes=5))
+    used = Column(Boolean, nullable=False, server_default=text("false"))
 
 class Cargo(Base):
     __tablename__ = "carga"

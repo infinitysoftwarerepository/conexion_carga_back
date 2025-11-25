@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import List, Optional
 from uuid import UUID
 from datetime import timedelta, datetime, timezone
+import random
+import string
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -93,6 +95,7 @@ def create_user(
         phone=user_in.phone,
         is_company=user_in.is_company,
         company_name=user_in.company_name if user_in.is_company else None,
+        is_driver=user_in.is_driver, 
         password_hash=password_hash,
         active=False,
         referred_by_id=referred_by_id,
@@ -109,7 +112,7 @@ def update_user(
     u = get_user(db, user_id)
     if not u:
         return None
-    for attr in ("email", "first_name", "last_name", "phone", "is_company", "company_name"):
+    for attr in ("email", "first_name", "last_name", "phone", "is_company", "company_name","is_driver"):
         val = getattr(user_in, attr, None)
         if val is not None:
             setattr(u, attr, val)
@@ -121,6 +124,32 @@ def update_user(
     db.commit()
     db.refresh(u)
     return u
+
+
+
+def create_verification_code(db: Session, user: models.User) -> str:
+    # Invalida todos los anteriores no usados
+    db.query(models.VerificationCode).filter(
+        models.VerificationCode.user_id == user.id,
+        models.VerificationCode.used == False
+    ).update({"used": True})
+
+    # Genera código nuevo
+    code = "".join(random.choices(string.digits, k=6))
+    expires_at = datetime.utcnow() + timedelta(minutes=5)
+
+    new_code = models.VerificationCode(
+        user_id=user.id,
+        code=code,
+        expires_at=expires_at,
+        used=False
+    )
+
+    db.add(new_code)
+    db.commit()
+    db.refresh(new_code)
+
+    return code
 
 
 # =====================================================

@@ -15,6 +15,8 @@ SMTP_USER = os.getenv("SMTP_USER")                     # Cuenta de correo remite
 SMTP_PASS = os.getenv("SMTP_PASS")                     # App Password
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)        # Nombre visible del remitente
 
+
+
 def send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
     """
     Envía un correo con versión texto y opcionalmente HTML.
@@ -39,3 +41,17 @@ def send_email(to_email: str, subject: str, text_body: str, html_body: str | Non
         s.starttls(context=ssl.create_default_context())  # conexión segura
         s.login(SMTP_USER, SMTP_PASS)                     # autenticación
         s.send_message(msg)                               # enviar mensaje
+
+def send_verification_email(email: str, code: str):
+    send_email(
+        to=email,
+        subject="Código de verificación - Conexión Carga",
+        body=f"Tu código de verificación es: {code}"
+    )
+
+def send_reset_password_email(email: str, code: str):
+    send_email(
+        to=email,
+        subject="Restablecer contraseña - Conexión Carga",
+        body=f"Tu código para restablecer tu contraseña es: {code}"
+    )
