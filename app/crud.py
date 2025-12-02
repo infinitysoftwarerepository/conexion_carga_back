@@ -157,32 +157,45 @@ def create_verification_code(db: Session, user: models.User) -> str:
 # =====================================================
 
 
-def create_cargo(db: Session, data: schemas.CargoCreate, comercial_id):
-    # 🟢 Por si quieres ver en logs qué llegó realmente:
-    # print(f"[CREATE_CARGO] duration_hours payload = {data.duration_hours}")
+def create_cargo(db: Session, data: schemas.CargoCreate, current_user: models.User):
+
+    # 1) Si viene empresa (texto), úsala
+    if getattr(data, "empresa", None):
+        empresa_nombre = data.empresa.strip() or None
+
+    # 2) Si el usuario es empresa, usar su nombre
+    elif current_user.is_company and current_user.company_name:
+        empresa_nombre = current_user.company_name.strip()
+
+    # 3) Nada aplica
+    else:
+        empresa_nombre = None
 
     obj = models.Cargo(
-        empresa_id=data.empresa_id,
+        empresa_id=data.empresa_id,     # UUID opcional
+        empresa=empresa_nombre,         # texto
         origen=data.origen,
         destino=data.destino,
         tipo_carga=data.tipo_carga,
         peso=data.peso,
         valor=data.valor,
-        comercial_id=comercial_id,
+        comercial_id=current_user.id,
         comercial=data.comercial,
         contacto=data.contacto,
         observaciones=data.observaciones,
         conductor=data.conductor,
-        # vehiculo_id=data.vehiculo_id,  # ❌ ELIMINADO
         tipo_vehiculo=data.tipo_vehiculo,
         duracion_publicacion=timedelta(hours=int(data.duration_hours or 24)),
         activo=True,
         premium_trip=getattr(data, "premium_trip", False),
     )
+
     db.add(obj)
     db.commit()
     db.refresh(obj)
     return obj
+
+
 
 
 def get_cargo(db: Session, cargo_id: UUID) -> Optional[models.Cargo]:

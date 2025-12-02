@@ -70,6 +70,7 @@ class CargoBase(BaseModel):
     tipo_carga: str
     peso: float
     valor: int
+    empresa: Optional[str] = None
     # extras
     comercial: Optional[str] = None
     contacto: Optional[str] = None
@@ -96,6 +97,7 @@ class CargoUpdate(BaseModel):
     tipo_carga: Optional[str] = None
     peso: Optional[float] = None
     valor: Optional[int] = None
+    empresa: Optional[str] = None
     comercial: Optional[str] = None
     contacto: Optional[str] = None
     observaciones: Optional[str] = None
@@ -108,6 +110,7 @@ class CargoUpdate(BaseModel):
 class CargoOut(CargoBase):
     id: UUID
     comercial_id: UUID
+    empresa: Optional[str]
     estado: str
     activo: bool
     created_at: datetime

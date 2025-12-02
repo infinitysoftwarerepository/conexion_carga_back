@@ -70,7 +70,12 @@ class Cargo(Base):
         primary_key=True,
         server_default=text("uuid_generate_v4()"),
     )
+
+    # UUID de empresa → opcional
     empresa_id = Column(UUID(as_uuid=True), nullable=True)
+
+    # NOMBRE DE EMPRESA → texto visible en app Flutter
+    empresa = Column(String, nullable=True)
 
     origen = Column(String, nullable=False)
     destino = Column(String, nullable=False)
@@ -90,18 +95,12 @@ class Cargo(Base):
     observaciones = Column(String, nullable=True)
 
     conductor = Column(String, nullable=True)
-    # vehiculo_id = Column(String, nullable=True)  # ❌ ELIMINADO
     tipo_vehiculo = Column(String, nullable=True)
-
-    # ↓ Fechas eliminadas previamente
-    # fecha_salida
-    # fecha_llegada_estimada
 
     estado = Column(String, nullable=False, server_default=text("'publicado'"))
     activo = Column(Boolean, nullable=False, server_default=text("true"))
     premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
 
-    # horas -> interval
     duracion_publicacion = Column(
         Interval, nullable=True, server_default=text("'24 hours'::interval")
     )
@@ -109,19 +108,13 @@ class Cargo(Base):
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
 
-    # 🟢 NUEVO: propiedad para que Pydantic (CargoOut) vea duration_hours correcto
     @property
     def duration_hours(self) -> int:
-        """
-        Exponer 'duracion_publicacion' (interval) como entero de horas.
-        Se usa solo para serializar respuesta (CargoOut) de forma consistente
-        con lo que espera el frontend.
-        """
         d = self.duracion_publicacion
         if not d:
-            return 24  # mismo default que en el schema
+            return 24
         try:
-            # En PostgreSQL Interval -> datetime.timedelta
             return int(d.total_seconds() // 3600)
         except Exception:
             return 24
+

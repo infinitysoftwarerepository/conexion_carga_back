@@ -15,7 +15,7 @@ def create_load(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
-    return crud.create_cargo(db, payload, comercial_id=current.id)
+    return crud.create_cargo(db, payload, current)
 
 @router.get("/public", response_model=List[schemas.CargoOut])
 def list_public(
