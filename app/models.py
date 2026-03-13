@@ -48,7 +48,9 @@ class User(Base):
         ForeignKey("conexion_carga.users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
+    # Compatibilidad: algunas instalaciones productivas aun no tienen esta
+    # columna en BD. Se evita mapearla para no romper login/consultas de users.
+    # referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
 
 
 class Cargo(Base):
