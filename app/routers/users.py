@@ -1,153 +1,261 @@
 # app/routers/users.py
 """
-Módulo de rutas de usuarios.
-Contiene:
-- registro
-- verificación de email
-- actualización
-- /me (perfil del usuario con token)
+Rutas de usuarios:
+- Registro
+- Reenvío de código de verificación
+- Verificación de email
+- Perfil /me
+- Actualización de usuario
 """
+
 from __future__ import annotations
-import os, time, random, string
 from typing import Dict
 from uuid import UUID
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app import crud, schemas, models  # ⬅️ (añadido: models para buscar referidor por id)
+from app import crud, schemas, models
 from app.db import get_db
 from app.security import get_password_hash, get_current_user
 from app.services.emailer import send_email
 
-# === Config ===
-EMAIL_CODE_LENGTH = int(os.getenv("EMAIL_CODE_LENGTH", "6"))
-EMAIL_CODE_TTL_MINUTES = int(os.getenv("EMAIL_CODE_TTL_MINUTES", "5"))
-EMAIL_RESEND_COOLDOWN_SECONDS = int(os.getenv("EMAIL_RESEND_COOLDOWN_SECONDS", "45"))
-
-# === Stores in-memory (demo) ===
-_verif_store: Dict[str, dict] = {}
-_last_send_epoch: Dict[str, float] = {}
-
-def _gen_code(n: int) -> str:
-    return "".join(random.choices(string.digits, k=n))
-
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
-# ==== Modelos internos ====
-class VerifyIn(BaseModel):
+
+# ==========================
+#   Esquemas internos
+# ==========================
+
+class ReloadCodeIn(BaseModel):
+    email: EmailStr
+
+
+class VerifyCodeIn(BaseModel):
     email: EmailStr
     code: str = Field(min_length=1, max_length=64)
+
+
+# ==========================
+#   Listado de usuarios
+# ==========================
 
 @router.get("", response_model=list[schemas.UserOut])
 def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return crud.get_users(db, skip=skip, limit=limit)
 
-@router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
+
+# ==========================
+#   Registro de usuario
+# ==========================
+
+@router.post(
+    "/register",
+    response_model=schemas.UserOut,
+    status_code=status.HTTP_201_CREATED,
+)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # email duplicado
+    # 1) Email duplicado
     existing = crud.get_user_by_email(db, user.email)
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Correo ya registrado")
 
-    # validar contraseñas iguales
+    # 2) Validar contraseñas iguales
     if user.password != user.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    # resolver referidor (OPCIONAL) -> referrer_email viene en schemas.UserCreate
+    # 3) Resolver referidor (opcional)
     ref_id = None
     if user.referrer_email:
         ref = crud.get_user_by_email(db, str(user.referrer_email))
         if not ref:
             raise HTTPException(status_code=400, detail="Referrer email does not exist")
-        ref_id = ref.id  # UUID del referidor
+        ref_id = ref.id
 
-    # crear usuario con hash y referidor
+    # 4) Crear usuario con hash y referidor
     pw_hash = get_password_hash(user.password)
-    created = crud.create_user(db, user, pw_hash, referred_by_id=ref_id)  # ⬅️ pasamos ref_id
+    created = crud.create_user(db, user, pw_hash, referred_by_id=ref_id)
     created.active = False
-    db.add(created); db.commit(); db.refresh(created)
+    db.add(created)
+    db.commit()
+    db.refresh(created)
 
-    # cooldown para reenvío de código
-    now = time.time()
-    last = _last_send_epoch.get(user.email, 0.0)
-    if now - last < EMAIL_RESEND_COOLDOWN_SECONDS:
-        raise HTTPException(status_code=429, detail="Wait before resending the code")
+    # 5) Crear código de verificación en BD
+    code = crud.create_verification_code(db, created)
 
-    # generar código y enviar email
-    code = _gen_code(EMAIL_CODE_LENGTH)
-    subject = "Verification code - Conexión Carga"
-    text = f"Hola,\nTu código de verificación es: {code}\nVence en {EMAIL_CODE_TTL_MINUTES} minutos."
+    # 6) Enviar email (reutilizamos send_email)
+    subject = "Código de verificación - Conexión Carga"
+    text = (
+        f"Hola {created.first_name},\n\n"
+        f"Tu código de verificación es: {code}\n"
+        "Este código vence en 5 minutos.\n\n"
+        "Si no solicitaste este código, ignora este correo."
+    )
     html = f"""
-        <p>Hola,</p>
+        <p>Hola {created.first_name},</p>
         <p>Tu código de verificación es:
            <strong style='font-size:20px;letter-spacing:2px'>{code}</strong></p>
-        <p>Vence en <strong>{EMAIL_CODE_TTL_MINUTES}</strong> minutos.</p>
-        <p style='color:#666;font-size:12px'>Si no solicitaste este código, ignora este correo.</p>
+        <p>El código vence en <strong>5 minutos</strong>.</p>
+        <p style='color:#666;font-size:12px'>
+           Si no solicitaste este código, puedes ignorar este correo.
+        </p>
     """
+
+    try:
+        send_email(created.email, subject, text, html)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Email send failed: {e}")
+
+    return created
+
+
+# ==========================
+#   Reenviar código
+# ==========================
+
+@router.post("/reload-code", summary="Reenviar código de verificación")
+def reload_code(
+    payload: ReloadCodeIn,
+    db: Session = Depends(get_db),
+):
+    user = crud.get_user_by_email(db, payload.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Genera nuevo código en BD (invalida los anteriores)
+    code = crud.create_verification_code(db, user)
+
+    subject = "Nuevo código de verificación - Conexión Carga"
+    text = (
+        f"Hola {user.first_name},\n\n"
+        f"Tu nuevo código de verificación es: {code}\n"
+        "Este código vence en 5 minutos.\n\n"
+        "Si no solicitaste este código, ignora este correo."
+    )
+    html = f"""
+        <p>Hola {user.first_name},</p>
+        <p>Tu nuevo código de verificación es:
+           <strong style='font-size:20px;letter-spacing:2px'>{code}</strong></p>
+        <p>El código vence en <strong>5 minutos</strong>.</p>
+        <p style='color:#666;font-size:12px'>
+           Si no solicitaste este código, puedes ignorar este correo.
+        </p>
+    """
+
     try:
         send_email(user.email, subject, text, html)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Email send failed: {e}")
 
-    _verif_store[user.email] = {
-        "code": code,
-        "expires": time.time() + (EMAIL_CODE_TTL_MINUTES * 60),
-        "attempts": 0,
-    }
-    _last_send_epoch[user.email] = now
-    return created
+    return {"detail": "Nuevo código enviado al correo"}
 
-@router.post("/verify")
-def verify_email(payload: VerifyIn, db: Session = Depends(get_db)):
-    rec = _verif_store.get(payload.email)
-    if not rec:
-        raise HTTPException(status_code=400, detail="No verification pending for this email")
 
-    if time.time() > rec["expires"]:
-        _verif_store.pop(payload.email, None)
-        raise HTTPException(status_code=400, detail="Code expired")
+# ==========================
+#   Verificar email
+# ==========================
 
-    if str(payload.code).strip() != str(rec["code"]):
-        rec["attempts"] = rec.get("attempts", 0) + 1
-        if rec["attempts"] >= 5:
-            _verif_store.pop(payload.email, None)
-            raise HTTPException(status_code=400, detail="Too many invalid attempts")
-        raise HTTPException(status_code=400, detail="Invalid code")
-
+@router.post("/verify", summary="Validar código de verificación")
+def verify_user(
+    payload: VerifyCodeIn,
+    db: Session = Depends(get_db),
+):
     user = crud.get_user_by_email(db, payload.email)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
+    verif = (
+        db.query(models.VerificationCode)
+        .filter(
+            models.VerificationCode.user_id == user.id,
+            models.VerificationCode.code == payload.code,
+            models.VerificationCode.used == False,
+        )
+        .first()
+    )
+
+    if not verif:
+        raise HTTPException(status_code=400, detail="Código inválido")
+
+    if verif.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="El código ha expirado")
+
+    # marcar código como usado y activar usuario
+    verif.used = True
     was_active = bool(user.active)
     user.active = True
 
-    # ⬇️ premiar referidor UNA vez (cuando el usuario se activa por primera vez)
+    # premiar referidor si aplica y aún no fue premiado
     if not was_active and user.referred_by_id and not getattr(user, "referral_rewarded", False):
-        # buscar referidor por UUID
         ref = db.query(models.User).get(user.referred_by_id)
         if ref:
             ref.points = int(ref.points or 0) + 1
             user.referral_rewarded = True
+            db.add(ref)
 
-    db.add(user); db.commit(); db.refresh(user)
+    db.add(user)
+    db.add(verif)
+    db.commit()
+    db.refresh(user)
 
-    _verif_store.pop(payload.email, None)
-    return {"status": "ok", "message": "Email verified. User activated.", "user_id": str(user.id)}
+    return {
+        "detail": "Cuenta verificada exitosamente",
+        "user_id": str(user.id),
+    }
+
+
+# ==========================
+#   Perfil actual
+# ==========================
 
 @router.get("/me", response_model=schemas.UserOut)
 def get_me(current: schemas.UserOut = Depends(get_current_user)):
-    """Devuelve el perfil del usuario autenticado (token en Authorization: Bearer)."""
+    """Devuelve el perfil del usuario autenticado (token Bearer)."""
     return current
+
+
+# ==========================
+#   Actualizar usuario
+# ==========================
 
 @router.put("/{user_id}", response_model=schemas.UserOut)
 def update_user(user_id: UUID, user: schemas.UserUpdate, db: Session = Depends(get_db)):
     if user.email:
         existing = crud.get_user_by_email(db, user.email)
         if existing and existing.id != user_id:
-            raise HTTPException(status_code=400, detail="Email already in use")
+            raise HTTPException(status_code=400, detail="Correo en uso")
     updated = crud.update_user(db, user_id, user)
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
     return updated
+
+@router.get("/leaderboard")
+def leaderboard(db: Session = Depends(get_db)):
+    """
+    Retorna lista de usuarios + puntos calculados dinámicamente:
+    puntos = cantidad de usuarios activos cuyo referred_by_id = id del usuario
+    """
+    users = db.query(models.User).all()
+
+    rows = []
+    for u in users:
+        pts = (
+            db.query(models.User)
+            .filter(
+                models.User.referred_by_id == u.id,
+                models.User.active == True   # Solo cuenta referidos ACTIVOS
+            )
+            .count()
+        )
+
+        rows.append({
+            "email": u.email,
+            "phone": u.phone,
+            "points": pts,
+        })
+
+    # ordenar por puntos desc
+    rows.sort(key=lambda x: x["points"], reverse=True)
+
+    return rows

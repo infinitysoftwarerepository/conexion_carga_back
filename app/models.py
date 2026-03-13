@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from .db import Base
 import uuid
-from datetime import timedelta  # 🟢 usado en la propiedad duration_hours
+from datetime import timedelta, datetime  # 🟢 usado en la propiedad duration_hours
 
 
 class User(Base):
@@ -36,6 +36,7 @@ class User(Base):
 
     is_company = Column(Boolean, nullable=False, server_default=text("false"))
     company_name = Column(String(255), nullable=True)
+    is_driver = Column(Boolean, nullable=False, server_default=text("false"))
     is_premium = Column(Boolean, nullable=False, server_default=text("false"))
     active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(
@@ -51,7 +52,16 @@ class User(Base):
     # Compatibilidad: algunas instalaciones productivas aun no tienen esta
     # columna en BD. Se evita mapearla para no romper login/consultas de users.
     # referral_rewarded = Column(Boolean, nullable=False, server_default=text("false"))
+class VerificationCode(Base):
+    __tablename__ = "verification_codes"
+    __table_args__ = {"schema": "conexion_carga"}
 
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("conexion_carga.users.id", ondelete="CASCADE"))
+    code = Column(String(6), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False, default=lambda: datetime.utcnow() + timedelta(minutes=5))
+    used = Column(Boolean, nullable=False, server_default=text("false"))
 
 class Cargo(Base):
     __tablename__ = "carga"
@@ -62,7 +72,12 @@ class Cargo(Base):
         primary_key=True,
         server_default=text("uuid_generate_v4()"),
     )
+
+    # UUID de empresa → opcional
     empresa_id = Column(UUID(as_uuid=True), nullable=True)
+
+    # NOMBRE DE EMPRESA → texto visible en app Flutter
+    empresa = Column(String, nullable=True)
 
     origen = Column(String, nullable=False)
     destino = Column(String, nullable=False)
@@ -82,18 +97,12 @@ class Cargo(Base):
     observaciones = Column(String, nullable=True)
 
     conductor = Column(String, nullable=True)
-    # vehiculo_id = Column(String, nullable=True)  # ❌ ELIMINADO
     tipo_vehiculo = Column(String, nullable=True)
-
-    # ↓ Fechas eliminadas previamente
-    # fecha_salida
-    # fecha_llegada_estimada
 
     estado = Column(String, nullable=False, server_default=text("'publicado'"))
     activo = Column(Boolean, nullable=False, server_default=text("true"))
     premium_trip = Column(Boolean, nullable=False, server_default=text("false"))
 
-    # horas -> interval
     duracion_publicacion = Column(
         Interval, nullable=True, server_default=text("'24 hours'::interval")
     )
@@ -101,19 +110,12 @@ class Cargo(Base):
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
 
-    # 🟢 NUEVO: propiedad para que Pydantic (CargoOut) vea duration_hours correcto
     @property
     def duration_hours(self) -> int:
-        """
-        Exponer 'duracion_publicacion' (interval) como entero de horas.
-        Se usa solo para serializar respuesta (CargoOut) de forma consistente
-        con lo que espera el frontend.
-        """
         d = self.duracion_publicacion
         if not d:
-            return 24  # mismo default que en el schema
+            return 24
         try:
-            # En PostgreSQL Interval -> datetime.timedelta
             return int(d.total_seconds() // 3600)
         except Exception:
             return 24

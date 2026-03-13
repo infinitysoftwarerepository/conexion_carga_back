@@ -4,16 +4,17 @@ Rutas de autenticacion.
 
 - /login y /login-form mantienen compatibilidad con la app movil.
 - /login-admin agrega control de acceso para panel web administrativo.
-- /password/forgot y /password/reset habilitan recuperacion de contrasena.
+- /password/forgot envia codigo para recuperacion de contrasena.
+- /password/reset restablece la contrasena usando codigo.
+- /logout expone un cierre de sesion no disruptivo para la web.
 """
 
 from __future__ import annotations
 
 import os
-import random
 import re
-import string
 import time
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -22,7 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import crud, schemas
+from app import crud, models, schemas
 from app.db import get_db
 from app.security import create_access_token, get_password_hash, verify_password
 from app.services.emailer import send_email
@@ -30,9 +31,7 @@ from app.services.emailer import send_email
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 ROL_ADMINISTRADOR = "Administrador"
-EMAIL_CODE_LENGTH = int(os.getenv("EMAIL_CODE_LENGTH", "6"))
 EMAIL_CODE_TTL_MINUTES = int(os.getenv("EMAIL_CODE_TTL_MINUTES", "5"))
-EMAIL_MAX_ATTEMPTS = int(os.getenv("EMAIL_MAX_ATTEMPTS", "5"))
 EMAIL_RESEND_COOLDOWN_SECONDS = int(os.getenv("EMAIL_RESEND_COOLDOWN_SECONDS", "45"))
 
 PASSWORD_LETTER_REGEX = re.compile(r"[A-Za-z]")
@@ -47,16 +46,11 @@ EMAILS_ADMIN_FALLBACK = {
     "ddgaviriaz@unal.edu.co",
 }
 
-_password_reset_store: dict[str, dict] = {}
 _password_last_send_epoch: dict[str, float] = {}
 
 
 def _normalizar_email(email: str) -> str:
     return email.strip().lower()
-
-
-def _generar_codigo(n: int) -> str:
-    return "".join(random.choices(string.digits, k=n))
 
 
 def _contrasena_segura(password: str) -> bool:
@@ -133,8 +127,6 @@ def _usuario_tiene_rol_admin_en_bd(
 
         return str(rol_nombre).strip().lower() == ROL_ADMINISTRADOR.lower()
     except SQLAlchemyError:
-        # Si la estructura de roles aun no existe o hay error temporal de SQL,
-        # degradamos a fallback por email para no romper el login web.
         return None
 
 
@@ -177,13 +169,6 @@ def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):
     """
     Inicia sesion con JSON:
       { "email": "...", "password": "..." }
-
-    Respuesta (coincide con schemas.TokenOut):
-      {
-        "access_token": "<JWT>",
-        "token_type": "bearer",
-        "user": { ...UserOut }
-      }
     """
     user = crud.get_user_by_email(db, payload.email)
     if not user or not verify_password(payload.password, user.password_hash):
@@ -214,8 +199,7 @@ def login_form(
     db: Session = Depends(get_db),
 ):
     """
-    Variante para pruebas desde Swagger o formularios
-    application/x-www-form-urlencoded.
+    Variante para pruebas desde Swagger o formularios application/x-www-form-urlencoded.
     """
     user = crud.get_user_by_email(db, email)
     if not user or not verify_password(password, user.password_hash):
@@ -273,15 +257,15 @@ def login_admin(payload: schemas.LoginIn, db: Session = Depends(get_db)):
 
 @router.post(
     "/password/forgot",
-    summary="Enviar codigo de recuperacion",
+    summary="Enviar código de recuperación",
 )
 def forgot_password(
     payload: schemas.PasswordForgotIn,
     db: Session = Depends(get_db),
 ):
     """
-    Solicita codigo de verificacion para restablecer contrasena.
-    Compatible con flujo de la app movil.
+    Solicita código de verificación para restablecer contraseña.
+    Compatible con flujo de la app móvil y con verification_codes en BD.
     """
     email = _normalizar_email(str(payload.email))
     user = crud.get_user_by_email(db, email)
@@ -301,7 +285,7 @@ def forgot_password(
             detail=f"Espera {wait_seconds} segundos antes de solicitar un nuevo código.",
         )
 
-    code = _generar_codigo(EMAIL_CODE_LENGTH)
+    code = crud.create_verification_code(db, user)
     subject = "Código de recuperación - Conexión Carga"
     text_body = (
         "Hola,\n"
@@ -310,7 +294,7 @@ def forgot_password(
         "Si no solicitaste este código, ignora este correo."
     )
     html_body = f"""
-        <p>Hola,</p>
+        <p>Hola {user.first_name},</p>
         <p>Tu código de recuperación es:
            <strong style='font-size:20px;letter-spacing:2px'>{code}</strong>
         </p>
@@ -321,18 +305,18 @@ def forgot_password(
     """
 
     try:
-        send_email(to_email=user.email, subject=subject, text_body=text_body, html_body=html_body)
+        send_email(
+            to_email=user.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No fue posible enviar el código de recuperación. Inténtalo nuevamente.",
         )
 
-    _password_reset_store[email] = {
-        "code": code,
-        "expires": now + (EMAIL_CODE_TTL_MINUTES * 60),
-        "attempts": 0,
-    }
     _password_last_send_epoch[email] = now
 
     return {"ok": True, "message": "Código enviado correctamente."}
@@ -340,43 +324,38 @@ def forgot_password(
 
 @router.post(
     "/password/reset",
-    summary="Restablecer contrasena",
+    summary="Restablecer contraseña",
 )
 def reset_password(
     payload: schemas.PasswordResetIn,
     db: Session = Depends(get_db),
 ):
     """
-    Restablece contrasena usando email + codigo + nueva contrasena.
-    Compatible con flujo de la app movil.
+    Restablece contraseña usando email + código + nueva contraseña.
+    Compatible con flujo móvil y con códigos persistidos en BD.
     """
     email = _normalizar_email(str(payload.email))
-    registro = _password_reset_store.get(email)
-    if not registro:
+    user = crud.get_user_by_email(db, email)
+    if not user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No hay una solicitud de recuperación activa para este correo.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No existe un usuario con ese correo electrónico.",
         )
 
-    if time.time() > float(registro.get("expires", 0)):
-        _password_reset_store.pop(email, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El código expiró. Solicita uno nuevo.",
+    verif = (
+        db.query(models.VerificationCode)
+        .filter(
+            models.VerificationCode.user_id == user.id,
+            models.VerificationCode.code == str(payload.code).strip(),
+            models.VerificationCode.used.is_(False),
         )
+        .first()
+    )
 
-    code = str(payload.code).strip()
-    if code != str(registro.get("code", "")):
-        registro["attempts"] = int(registro.get("attempts", 0)) + 1
-        if registro["attempts"] >= EMAIL_MAX_ATTEMPTS:
-            _password_reset_store.pop(email, None)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Superaste el máximo de intentos. Solicita un nuevo código.",
-            )
+    if not verif or verif.expires_at < datetime.utcnow():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El código ingresado no es válido.",
+            detail="El código ingresado no es válido o expiró.",
         )
 
     if not _contrasena_segura(payload.new_password):
@@ -388,25 +367,18 @@ def reset_password(
             ),
         )
 
-    user = crud.get_user_by_email(db, email)
-    if not user:
-        _password_reset_store.pop(email, None)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No existe un usuario con ese correo electrónico.",
-        )
-
     if verify_password(payload.new_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La nueva contraseña debe ser diferente a la actual.",
         )
 
+    verif.used = True
     user.password_hash = get_password_hash(payload.new_password)
-    db.add(user)
-    db.commit()
 
-    _password_reset_store.pop(email, None)
+    db.add(user)
+    db.add(verif)
+    db.commit()
 
     return {"ok": True, "message": "Contraseña actualizada correctamente."}
 

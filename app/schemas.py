@@ -16,6 +16,7 @@ class UserBase(BaseModel):
     phone: Optional[str] = None
     is_company: bool = False
     company_name: Optional[str] = None
+    is_driver: bool = False
 
 
 class UserCreate(UserBase):
@@ -31,6 +32,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     is_company: Optional[bool] = None
     company_name: Optional[str] = None
+    is_driver: Optional[bool] = None 
     password: Optional[str] = None
 
 
@@ -78,6 +80,7 @@ class CargoBase(BaseModel):
     tipo_carga: str
     peso: float
     valor: int
+    empresa: Optional[str] = None
     # extras
     comercial: Optional[str] = None
     contacto: Optional[str] = None
@@ -104,6 +107,7 @@ class CargoUpdate(BaseModel):
     tipo_carga: Optional[str] = None
     peso: Optional[float] = None
     valor: Optional[int] = None
+    empresa: Optional[str] = None
     comercial: Optional[str] = None
     contacto: Optional[str] = None
     observaciones: Optional[str] = None
@@ -116,6 +120,7 @@ class CargoUpdate(BaseModel):
 class CargoOut(CargoBase):
     id: UUID
     comercial_id: UUID
+    empresa: Optional[str]
     estado: str
     activo: bool
     created_at: datetime

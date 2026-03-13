@@ -14,6 +14,7 @@ from app.routers import (
     catalogos,
     dashboard_admin,
     public_pages,
+    recaptcha,
     viajes_admin,
     usuarios_admin,
 )  # 👈 router admin agregado sin tocar contratos existentes
@@ -48,6 +49,7 @@ app.include_router(auth.router)
 app.include_router(loads.router)
 app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_
 app.include_router(public_pages.router)  # 👈 pagina publica /privacidad en HTML
+app.include_router(recaptcha.router)  # ✅ /recaptcha (checkbox "No soy un robot")
 app.include_router(dashboard_admin.router)  # 👈 endpoints admin dashboard (add-only)
 app.include_router(viajes_admin.router)  # 👈 endpoints admin viajes (add-only)
 app.include_router(usuarios_admin.router)  # 👈 endpoints admin usuarios (add-only)
