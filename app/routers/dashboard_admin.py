@@ -17,6 +17,7 @@ from app.db import get_db
 from app.schemas_dashboard import (
     PuntoSerieDashboardOut,
     ResumenDashboardOut,
+    TopHistoricoDashboardOut,
     TarjetasResumenOut,
     UltimoViajePublicadoOut,
 )
@@ -495,6 +496,164 @@ def _obtener_valor_entero(valor: object) -> int:
         return 0
 
 
+def _normalizar_texto_simple(valor: object) -> str | None:
+    if valor is None:
+        return None
+
+    texto = str(valor).strip()
+    return texto or None
+
+
+def _normalizar_ruta_label(valor: object) -> str:
+    texto = _normalizar_texto_simple(valor) or ''
+    return ' '.join(texto.split())
+
+
+def _obtener_top_usuarios_publicadores(
+    db: Session,
+    limit: int,
+) -> list[TopHistoricoDashboardOut]:
+    filas = db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(
+                    NULLIF(CONCAT_WS(' ', u.first_name, u.last_name), ''),
+                    u.email
+                ) AS label,
+                COALESCE(NULLIF(TRIM(u.company_name), ''), u.email) AS secondary_label,
+                COUNT(c.id) AS total
+            FROM conexion_carga.carga c
+            JOIN conexion_carga.users u
+              ON u.id = c.comercial_id
+            WHERE c.estado = 'publicado'
+            GROUP BY u.id, u.first_name, u.last_name, u.email, u.company_name
+            ORDER BY COUNT(c.id) DESC, MIN(c.created_at) ASC
+            LIMIT :limit
+            """
+        ),
+        {'limit': limit},
+    ).mappings().all()
+
+    return [
+        TopHistoricoDashboardOut(
+            label=str(fila['label'] or 'Usuario sin nombre'),
+            secondary_label=_normalizar_texto_simple(fila.get('secondary_label')),
+            total=int(fila['total'] or 0),
+        )
+        for fila in filas
+    ]
+
+
+def _obtener_top_rutas_publicadas(
+    db: Session,
+    limit: int,
+) -> list[TopHistoricoDashboardOut]:
+    filas = db.execute(
+        text(
+            """
+            WITH rutas_normalizadas AS (
+                SELECT
+                    TRIM(
+                        REGEXP_REPLACE(
+                            REGEXP_REPLACE(
+                                UPPER(
+                                    TRANSLATE(COALESCE(c.origen, ''), 'áéíóúÁÉÍÓÚñÑ', 'aeiouAEIOUnN')
+                                ),
+                                '[-_/]+',
+                                ' ',
+                                'g'
+                            ),
+                            '\\s+',
+                            ' ',
+                            'g'
+                        )
+                    ) AS origen_norm,
+                    TRIM(
+                        REGEXP_REPLACE(
+                            REGEXP_REPLACE(
+                                UPPER(
+                                    TRANSLATE(COALESCE(c.destino, ''), 'áéíóúÁÉÍÓÚñÑ', 'aeiouAEIOUnN')
+                                ),
+                                '[-_/]+',
+                                ' ',
+                                'g'
+                            ),
+                            '\\s+',
+                            ' ',
+                            'g'
+                        )
+                    ) AS destino_norm,
+                    c.created_at
+                FROM conexion_carga.carga c
+                WHERE c.estado = 'publicado'
+            )
+            SELECT
+                INITCAP(LOWER(origen_norm)) || ' -> ' || INITCAP(LOWER(destino_norm)) AS label,
+                COUNT(*) AS total
+            FROM rutas_normalizadas
+            WHERE origen_norm <> ''
+              AND destino_norm <> ''
+            GROUP BY origen_norm, destino_norm
+            ORDER BY COUNT(*) DESC, MIN(created_at) ASC
+            LIMIT :limit
+            """
+        ),
+        {'limit': limit},
+    ).mappings().all()
+
+    return [
+        TopHistoricoDashboardOut(
+            label=_normalizar_ruta_label(fila['label']) or 'Ruta no disponible',
+            secondary_label=None,
+            total=int(fila['total'] or 0),
+        )
+        for fila in filas
+    ]
+
+
+def _obtener_top_empresas_publicadoras(
+    db: Session,
+    limit: int,
+) -> list[TopHistoricoDashboardOut]:
+    filas = db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(
+                    NULLIF(TRIM(c.empresa), ''),
+                    NULLIF(TRIM(u.company_name), '')
+                ) AS label,
+                COUNT(c.id) AS total
+            FROM conexion_carga.carga c
+            LEFT JOIN conexion_carga.users u
+              ON u.id = c.comercial_id
+            WHERE c.estado = 'publicado'
+              AND COALESCE(
+                    NULLIF(TRIM(c.empresa), ''),
+                    NULLIF(TRIM(u.company_name), '')
+                  ) IS NOT NULL
+            GROUP BY COALESCE(
+                NULLIF(TRIM(c.empresa), ''),
+                NULLIF(TRIM(u.company_name), '')
+            )
+            ORDER BY COUNT(c.id) DESC, MIN(c.created_at) ASC
+            LIMIT :limit
+            """
+        ),
+        {'limit': limit},
+    ).mappings().all()
+
+    return [
+        TopHistoricoDashboardOut(
+            label=str(fila['label'] or 'Empresa no disponible'),
+            secondary_label=None,
+            total=int(fila['total'] or 0),
+        )
+        for fila in filas
+    ]
+
+
 @router.get('/resumen', response_model=ResumenDashboardOut)
 def obtener_resumen_dashboard(
     periodo: PeriodoDashboard = Query(default='mes', pattern='^(mes|semana|anual)$'),
@@ -557,3 +716,39 @@ def obtener_ultimos_viajes_publicados(
         )
 
     return resultados
+
+
+@router.get(
+    '/top-usuarios-publicadores',
+    response_model=list[TopHistoricoDashboardOut],
+)
+def obtener_top_usuarios_publicadores(
+    limit: int = Query(default=10, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    return _obtener_top_usuarios_publicadores(db=db, limit=limit)
+
+
+@router.get(
+    '/top-rutas-publicadas',
+    response_model=list[TopHistoricoDashboardOut],
+)
+def obtener_top_rutas_publicadas(
+    limit: int = Query(default=10, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    return _obtener_top_rutas_publicadas(db=db, limit=limit)
+
+
+@router.get(
+    '/top-empresas-publicadoras',
+    response_model=list[TopHistoricoDashboardOut],
+)
+def obtener_top_empresas_publicadoras(
+    limit: int = Query(default=10, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    return _obtener_top_empresas_publicadoras(db=db, limit=limit)

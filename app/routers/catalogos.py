@@ -19,7 +19,7 @@ def lista_municipios(
     # Solo necesitamos nombres. Filtramos por activo si existe esa columna.
     sql = text("""
         SELECT nombre
-        FROM municipio
+        FROM conexion_carga.municipio
         WHERE (activo IS NULL OR activo = TRUE)
         ORDER BY nombre ASC
         LIMIT :limit
@@ -35,7 +35,7 @@ def lista_tipos_carga(
     # Tabla: tipo_carga (columna 'nombre' y opcional 'activo')
     sql = text("""
         SELECT nombre
-        FROM tipo_carga
+        FROM conexion_carga.tipo_carga
         WHERE (activo IS NULL OR activo = TRUE)
         ORDER BY nombre ASC
         LIMIT :limit
@@ -51,7 +51,7 @@ def lista_tipos_vehiculo(
     # Tabla: tipo_vehiculo (columna 'nombre' y opcional 'activo')
     sql = text("""
         SELECT nombre
-        FROM tipo_vehiculo
+        FROM conexion_carga.tipo_vehiculo
         WHERE (activo IS NULL OR activo = TRUE)
         ORDER BY nombre ASC
         LIMIT :limit
@@ -69,10 +69,14 @@ def crear_tipo_carga(nombre: str, db: Session = Depends(get_db)):
     if not nombre:
         raise HTTPException(status_code=400, detail="Nombre requerido")
     # upsert simple por nombre
-    sql_exists = text("SELECT 1 FROM tipo_carga WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
+    sql_exists = text(
+        "SELECT 1 FROM conexion_carga.tipo_carga WHERE LOWER(nombre)=LOWER(:n) LIMIT 1"
+    )
     if db.execute(sql_exists, {"n": nombre}).fetchone():
         return {"created": False, "nombre": nombre}  # ya existía
-    sql_ins = text("INSERT INTO tipo_carga (nombre, activo) VALUES (:n, TRUE)")
+    sql_ins = text(
+        "INSERT INTO conexion_carga.tipo_carga (nombre, activo) VALUES (:n, TRUE)"
+    )
     db.execute(sql_ins, {"n": nombre})
     db.commit()
     return {"created": True, "nombre": nombre}
@@ -82,10 +86,14 @@ def crear_tipo_vehiculo(nombre: str, db: Session = Depends(get_db)):
     nombre = _norm(nombre)
     if not nombre:
         raise HTTPException(status_code=400, detail="Nombre requerido")
-    sql_exists = text("SELECT 1 FROM tipo_vehiculo WHERE LOWER(nombre)=LOWER(:n) LIMIT 1")
+    sql_exists = text(
+        "SELECT 1 FROM conexion_carga.tipo_vehiculo WHERE LOWER(nombre)=LOWER(:n) LIMIT 1"
+    )
     if db.execute(sql_exists, {"n": nombre}).fetchone():
         return {"created": False, "nombre": nombre}
-    sql_ins = text("INSERT INTO tipo_vehiculo (nombre, activo) VALUES (:n, TRUE)")
+    sql_ins = text(
+        "INSERT INTO conexion_carga.tipo_vehiculo (nombre, activo) VALUES (:n, TRUE)"
+    )
     db.execute(sql_ins, {"n": nombre})
     db.commit()
     return {"created": True, "nombre": nombre}

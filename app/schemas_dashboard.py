@@ -35,3 +35,9 @@ class UltimoViajePublicadoOut(BaseModel):
     valor: int
     estado: Literal['activo', 'inactivo']
     fecha_publicacion: datetime
+
+
+class TopHistoricoDashboardOut(BaseModel):
+    label: str
+    secondary_label: str | None = None
+    total: int

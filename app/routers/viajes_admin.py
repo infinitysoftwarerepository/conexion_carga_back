@@ -11,9 +11,13 @@ from sqlalchemy import String, cast, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import models
+from app import crud, models, schemas
 from app.db import get_db
 from app.routers.dashboard_admin import _asegurar_usuario_admin
+from app.schemas_exportacion_admin import (
+    ViajeAdminExportOut,
+    ViajeEliminadoAdminExportOut,
+)
 from app.schemas_viajes_admin import (
     ActualizarViajeAdminIn,
     CausalEliminacionOut,
@@ -129,6 +133,14 @@ def _coalescer_texto(*valores: object) -> str | None:
             return texto
 
     return None
+
+
+def _resolver_usuario_publicador(*valores: object) -> str | None:
+    return _coalescer_texto(*valores)
+
+
+def _resolver_empresa_publicadora(*valores: object) -> str | None:
+    return _coalescer_texto(*valores)
 
 
 def _resolver_estado_viaje(
@@ -478,6 +490,154 @@ def obtener_viajes_admin(
     )
 
 
+@router.get('/viajes/sugerencias/empresas', response_model=list[str])
+def obtener_sugerencias_empresas_viajes_admin(
+    q: str = Query(default='', max_length=120),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    termino = ' '.join(str(q or '').split())
+
+    filas = db.execute(
+        text(
+            """
+            WITH empresas_normalizadas AS (
+                SELECT
+                    MIN(REGEXP_REPLACE(TRIM(company_name), '\\s+', ' ', 'g')) AS nombre
+                FROM conexion_carga.users
+                WHERE NULLIF(TRIM(company_name), '') IS NOT NULL
+                  AND (
+                        :termino = ''
+                        OR REGEXP_REPLACE(TRIM(company_name), '\\s+', ' ', 'g') ILIKE :termino_like
+                  )
+                GROUP BY LOWER(REGEXP_REPLACE(TRIM(company_name), '\\s+', ' ', 'g'))
+            )
+            SELECT nombre
+            FROM empresas_normalizadas
+            ORDER BY LOWER(nombre) ASC
+            LIMIT :limit
+            """
+        ),
+        {
+            'termino': termino,
+            'termino_like': f'%{termino}%',
+            'limit': limit,
+        },
+    ).scalars().all()
+
+    return [str(nombre).strip() for nombre in filas if str(nombre or '').strip()]
+
+
+@router.get('/viajes/exportacion', response_model=list[ViajeAdminExportOut])
+def exportar_viajes_admin(
+    q: str = Query(default='', max_length=255),
+    estado: FiltroEstadoViajeAdmin = Query(
+        default='todos',
+        pattern='^(activo|inactivo|todos)$',
+    ),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    _asegurar_tablas_eliminacion(db)
+    _sincronizar_vigencia_publicaciones(db)
+
+    termino = (q or '').strip()
+    filtro_like = f'%{termino}%'
+
+    query = db.query(models.Cargo).filter(
+        models.Cargo.estado == 'publicado',
+        text(
+            """
+            NOT EXISTS (
+                SELECT 1
+                FROM conexion_carga.carga_eliminada ce
+                WHERE ce.carga_id = conexion_carga.carga.id
+            )
+            """
+        ),
+    )
+
+    if estado == 'activo':
+        query = query.filter(models.Cargo.activo.is_(True))
+    elif estado == 'inactivo':
+        query = query.filter(models.Cargo.activo.is_(False))
+
+    if termino:
+        query = query.filter(
+            or_(
+                cast(models.Cargo.id, String).ilike(filtro_like),
+                models.Cargo.origen.ilike(filtro_like),
+                models.Cargo.destino.ilike(filtro_like),
+                models.Cargo.tipo_carga.ilike(filtro_like),
+                models.Cargo.comercial.ilike(filtro_like),
+                models.Cargo.contacto.ilike(filtro_like),
+                models.Cargo.conductor.ilike(filtro_like),
+                models.Cargo.tipo_vehiculo.ilike(filtro_like),
+                cast(models.Cargo.valor, String).ilike(filtro_like),
+            )
+        )
+
+    viajes = query.order_by(models.Cargo.created_at.desc()).all()
+
+    usuarios_por_id = {
+        str(row.id): row
+        for row in db.query(
+            models.User.id,
+            models.User.first_name,
+            models.User.last_name,
+            models.User.email,
+            models.User.company_name,
+        )
+        .filter(models.User.id.in_([viaje.comercial_id for viaje in viajes if viaje.comercial_id]))
+        .all()
+    }
+
+    resultados: list[ViajeAdminExportOut] = []
+    for viaje in viajes:
+        publicador = usuarios_por_id.get(str(viaje.comercial_id))
+        usuario = _resolver_usuario_publicador(
+            viaje.comercial,
+            (
+                ' '.join(
+                    parte
+                    for parte in [
+                        str(publicador.first_name or '').strip()
+                        if publicador
+                        else '',
+                        str(publicador.last_name or '').strip()
+                        if publicador
+                        else '',
+                    ]
+                    if parte
+                )
+                if publicador
+                else None
+            ),
+            publicador.email if publicador else None,
+        )
+        empresa = _resolver_empresa_publicadora(
+            viaje.empresa,
+            publicador.company_name if publicador else None,
+        )
+
+        resultados.append(
+            ViajeAdminExportOut(
+                id_viaje=str(viaje.id),
+                usuario=usuario,
+                empresa=empresa,
+                origen=viaje.origen,
+                destino=viaje.destino,
+                estado='Activo' if bool(viaje.activo) else 'Inactivo',
+                tipo_carga=viaje.tipo_carga,
+                valor=_obtener_valor_entero(viaje.valor),
+                fecha_creacion=viaje.created_at,
+            )
+        )
+
+    return resultados
+
+
 @router.get('/viajes/{viaje_id}', response_model=ViajeAdminOut)
 def obtener_detalle_viaje_admin(
     viaje_id: UUID,
@@ -492,6 +652,30 @@ def obtener_detalle_viaje_admin(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Viaje no encontrado o ya eliminado.',
+        )
+
+    return _serializar_viaje(viaje)
+
+
+@router.post(
+    '/viajes',
+    response_model=ViajeAdminOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_viaje_admin(
+    payload: schemas.CargoCreate,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(_asegurar_usuario_admin),
+):
+    _sincronizar_vigencia_publicaciones(db)
+
+    try:
+        viaje = crud.create_cargo(db, payload, current)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='No fue posible crear el viaje con los datos enviados.',
         )
 
     return _serializar_viaje(viaje)
@@ -795,6 +979,154 @@ def obtener_viajes_eliminados_admin(
         page_size=page_size,
         items=items,
     )
+
+
+@router.get(
+    '/viajes-eliminados/exportacion',
+    response_model=list[ViajeEliminadoAdminExportOut],
+)
+def exportar_viajes_eliminados_admin(
+    q: str = Query(default='', max_length=255),
+    causal_id: int | None = Query(default=None, ge=1),
+    fecha_desde: str | None = Query(default=None),
+    fecha_hasta: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    _asegurar_tablas_eliminacion(db)
+
+    termino = (q or '').strip()
+    fecha_desde_dt = _parsear_fecha_filtro(
+        fecha_desde,
+        nombre_parametro='fecha_desde',
+        fin_de_dia=False,
+    )
+    fecha_hasta_dt = _parsear_fecha_filtro(
+        fecha_hasta,
+        nombre_parametro='fecha_hasta',
+        fin_de_dia=True,
+    )
+
+    if fecha_desde_dt and fecha_hasta_dt and fecha_desde_dt > fecha_hasta_dt:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='El rango de fechas no es válido: fecha_desde no puede ser mayor a fecha_hasta.',
+        )
+
+    params: dict[str, object] = {}
+    filtros_sql: list[str] = []
+
+    if termino:
+        filtros_sql.append(
+            """
+            (
+                COALESCE(ce.observacion, '') ILIKE :q_like
+                OR COALESCE(ca.nombre, '') ILIKE :q_like
+                OR COALESCE(NULLIF(ce.snapshot_json->>'origen', ''), COALESCE(c.origen, '')) ILIKE :q_like
+                OR COALESCE(NULLIF(ce.snapshot_json->>'destino', ''), COALESCE(c.destino, '')) ILIKE :q_like
+                OR CAST(ce.carga_id AS TEXT) ILIKE :q_like
+            )
+            """
+        )
+        params['q_like'] = f'%{termino}%'
+
+    if causal_id is not None:
+        filtros_sql.append('ce.causal_id = :causal_id')
+        params['causal_id'] = causal_id
+
+    if fecha_desde_dt:
+        filtros_sql.append('ce.eliminado_en >= :fecha_desde')
+        params['fecha_desde'] = fecha_desde_dt
+
+    if fecha_hasta_dt:
+        filtros_sql.append('ce.eliminado_en <= :fecha_hasta')
+        params['fecha_hasta'] = fecha_hasta_dt
+
+    where_clause = f"WHERE {' AND '.join(filtros_sql)}" if filtros_sql else ''
+    from_clause = """
+        FROM conexion_carga.carga_eliminada ce
+        JOIN conexion_carga.causales_eliminacion ca
+          ON ca.id = ce.causal_id
+        LEFT JOIN conexion_carga.carga c
+          ON c.id = ce.carga_id
+        LEFT JOIN conexion_carga.users eliminador
+          ON eliminador.id = ce.eliminado_por
+        LEFT JOIN conexion_carga.users publicador
+          ON publicador.id = c.comercial_id
+    """
+
+    filas = db.execute(
+        text(
+            f"""
+            SELECT
+                ce.id,
+                ce.carga_id,
+                ce.causal_id,
+                ce.observacion,
+                ce.eliminado_por,
+                ce.eliminado_en,
+                ce.snapshot_json,
+                ca.nombre AS causal_nombre,
+                eliminador.email AS eliminado_por_email,
+                NULLIF(CONCAT_WS(' ', eliminador.first_name, eliminador.last_name), '') AS eliminado_por_nombre,
+                c.origen AS carga_origen,
+                c.destino AS carga_destino,
+                c.valor AS carga_valor,
+                c.tipo_carga AS carga_tipo_carga,
+                c.activo AS carga_activo,
+                c.estado AS carga_estado,
+                c.created_at AS carga_created_at,
+                c.comercial AS carga_comercial,
+                c.empresa AS carga_empresa,
+                NULLIF(CONCAT_WS(' ', publicador.first_name, publicador.last_name), '') AS publicador_nombre,
+                publicador.email AS publicador_email,
+                publicador.company_name AS publicador_empresa
+            {from_clause}
+            {where_clause}
+            ORDER BY ce.eliminado_en DESC
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    resultados: list[ViajeEliminadoAdminExportOut] = []
+    for fila in filas:
+        snapshot = _normalizar_snapshot_json(fila.get('snapshot_json'))
+        usuario = _resolver_usuario_publicador(
+            snapshot.get('comercial'),
+            fila.get('carga_comercial'),
+            fila.get('publicador_nombre'),
+            fila.get('publicador_email'),
+        )
+        empresa = _resolver_empresa_publicadora(
+            snapshot.get('empresa'),
+            fila.get('carga_empresa'),
+            fila.get('publicador_empresa'),
+        )
+        fecha_creacion = _parsear_fecha_iso(snapshot.get('created_at'))
+        if fecha_creacion is None:
+            fecha_creacion = _parsear_fecha_iso(fila.get('carga_created_at'))
+
+        resultados.append(
+            ViajeEliminadoAdminExportOut(
+                id_viaje=str(fila['carga_id']),
+                usuario=usuario,
+                empresa=empresa,
+                origen=_coalescer_texto(snapshot.get('origen'), fila.get('carga_origen')),
+                destino=_coalescer_texto(
+                    snapshot.get('destino'),
+                    fila.get('carga_destino'),
+                ),
+                causal_eliminacion=_normalizar_nombre_causal(
+                    str(fila['causal_nombre'] or '')
+                ),
+                observacion=_coalescer_texto(fila.get('observacion')),
+                fecha_creacion_viaje=fecha_creacion,
+                fecha_eliminacion=_normalizar_fecha(fila['eliminado_en']),
+            )
+        )
+
+    return resultados
 
 
 @router.get('/viajes-eliminados/{registro_id}', response_model=ViajeEliminadoDetalleOut)

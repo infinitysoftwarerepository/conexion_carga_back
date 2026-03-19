@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.db import get_db
 from app.routers.dashboard_admin import _asegurar_usuario_admin
+from app.schemas_exportacion_admin import UsuarioAdminExportOut
 from app.schemas_usuarios_admin import (
     ActualizarUsuarioAdminIn,
     CambiarEstadoUsuarioAdminIn,
@@ -24,6 +26,7 @@ from app.schemas_usuarios_admin import (
 from app.security import get_password_hash
 
 router = APIRouter(prefix='/api/admin/usuarios', tags=['Admin Usuarios'])
+ROL_ADMINISTRADOR_NOMBRE = 'Administrador'
 
 
 def _normalizar_texto(valor: object) -> str | None:
@@ -48,6 +51,29 @@ def _obtener_entero(valor: object) -> int:
         return 0
 
 
+def _obtener_rol_admin_id(db: Session) -> int:
+    rol_id = db.execute(
+        text(
+            """
+            SELECT id
+            FROM conexion_carga.rol
+            WHERE LOWER(nombre) = LOWER(:nombre)
+            ORDER BY id ASC
+            LIMIT 1
+            """
+        ),
+        {'nombre': ROL_ADMINISTRADOR_NOMBRE},
+    ).scalar()
+
+    if rol_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='No fue posible resolver el rol Administrador.',
+        )
+
+    return int(rol_id)
+
+
 def _obtener_usuario_por_id(db: Session, usuario_id: UUID | str):
     return db.execute(
         text(
@@ -65,9 +91,13 @@ def _obtener_usuario_por_id(db: Session, usuario_id: UUID | str):
                 u.points,
                 u.is_premium,
                 u.is_driver,
+                u.rol_id,
+                r.nombre AS rol_nombre,
                 u.referred_by_id,
                 ref.email AS referred_by_email
             FROM conexion_carga.users u
+            LEFT JOIN conexion_carga.rol r
+              ON r.id = u.rol_id
             LEFT JOIN conexion_carga.users ref
               ON ref.id = u.referred_by_id
             WHERE u.id = CAST(:usuario_id AS uuid)
@@ -92,34 +122,42 @@ def _serializar_usuario(row) -> UsuarioAdminOut:
         points=_obtener_entero(row.get('points')),
         is_premium=bool(row.get('is_premium')),
         is_driver=bool(row.get('is_driver')),
+        rol_id=_obtener_entero(row.get('rol_id')) or None,
+        is_admin=str(row.get('rol_nombre') or '').strip().lower()
+        == ROL_ADMINISTRADOR_NOMBRE.lower(),
         referred_by_id=str(row['referred_by_id']) if row.get('referred_by_id') else None,
         referred_by_email=_normalizar_texto(row.get('referred_by_email')),
     )
 
 
-@router.get('', response_model=ListaUsuariosAdminOut)
-def obtener_usuarios_admin(
-    q: str = Query(default='', max_length=255),
-    estado: EstadoFiltroUsuarioAdmin = Query(
-        default='todos',
-        pattern='^(todos|habilitado|inhabilitado)$',
-    ),
-    tipo: TipoFiltroUsuarioAdmin = Query(
-        default='todos',
-        pattern='^(todos|usuario|empresa|conductor|premium)$',
-    ),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=12, ge=1, le=100),
-    db: Session = Depends(get_db),
-    _: models.User = Depends(_asegurar_usuario_admin),
-):
+def _obtener_tipo_usuario_exportacion(row: dict[str, object]) -> str:
+    tipos: list[str] = []
+
+    if bool(row.get('is_company')):
+        tipos.append('Empresa')
+    if bool(row.get('is_driver')):
+        tipos.append('Conductor')
+    if bool(row.get('is_premium')):
+        tipos.append('Premium')
+
+    if not tipos:
+        tipos.append('Usuario')
+
+    return ', '.join(tipos)
+
+
+def _construir_consulta_usuarios_admin(
+    *,
+    q: str,
+    estado: EstadoFiltroUsuarioAdmin,
+    tipo: TipoFiltroUsuarioAdmin,
+    fecha_desde: date | None,
+    fecha_hasta: date | None,
+) -> tuple[str, str, dict[str, object]]:
     termino = (q or '').strip()
 
     filtros: list[str] = []
-    params: dict[str, object] = {
-        'limit': page_size,
-        'offset': (page - 1) * page_size,
-    }
+    params: dict[str, object] = {}
 
     if termino:
         filtros.append(
@@ -156,13 +194,63 @@ def obtener_usuarios_admin(
             """
         )
 
-    where_clause = f"WHERE {' AND '.join(filtros)}" if filtros else ''
+    if fecha_desde:
+        filtros.append('u.created_at >= CAST(:fecha_desde AS date)')
+        params['fecha_desde'] = fecha_desde
 
+    if fecha_hasta:
+        filtros.append("u.created_at < CAST(:fecha_hasta AS date) + INTERVAL '1 day'")
+        params['fecha_hasta'] = fecha_hasta
+
+    where_clause = f"WHERE {' AND '.join(filtros)}" if filtros else ''
     from_clause = """
         FROM conexion_carga.users u
+        LEFT JOIN conexion_carga.rol r
+          ON r.id = u.rol_id
         LEFT JOIN conexion_carga.users ref
           ON ref.id = u.referred_by_id
     """
+
+    return from_clause, where_clause, params
+
+
+@router.get('', response_model=ListaUsuariosAdminOut)
+def obtener_usuarios_admin(
+    q: str = Query(default='', max_length=255),
+    estado: EstadoFiltroUsuarioAdmin = Query(
+        default='todos',
+        pattern='^(todos|habilitado|inhabilitado)$',
+    ),
+    tipo: TipoFiltroUsuarioAdmin = Query(
+        default='todos',
+        pattern='^(todos|usuario|empresa|conductor|premium)$',
+    ),
+    fecha_desde: date | None = Query(default=None),
+    fecha_hasta: date | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=12, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='La fecha desde no puede ser mayor que la fecha hasta.',
+        )
+
+    from_clause, where_clause, params = _construir_consulta_usuarios_admin(
+        q=q,
+        estado=estado,
+        tipo=tipo,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+    params.update(
+        {
+            'limit': page_size,
+            'offset': (page - 1) * page_size,
+        }
+    )
 
     total = db.execute(
         text(
@@ -191,6 +279,8 @@ def obtener_usuarios_admin(
                 u.points,
                 u.is_premium,
                 u.is_driver,
+                u.rol_id,
+                r.nombre AS rol_nombre,
                 u.referred_by_id,
                 ref.email AS referred_by_email
             {from_clause}
@@ -209,6 +299,84 @@ def obtener_usuarios_admin(
         page_size=page_size,
         items=[_serializar_usuario(fila) for fila in filas],
     )
+
+
+@router.get('/exportacion', response_model=list[UsuarioAdminExportOut])
+def exportar_usuarios_admin(
+    q: str = Query(default='', max_length=255),
+    estado: EstadoFiltroUsuarioAdmin = Query(
+        default='todos',
+        pattern='^(todos|habilitado|inhabilitado)$',
+    ),
+    tipo: TipoFiltroUsuarioAdmin = Query(
+        default='todos',
+        pattern='^(todos|usuario|empresa|conductor|premium)$',
+    ),
+    fecha_desde: date | None = Query(default=None),
+    fecha_hasta: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(_asegurar_usuario_admin),
+):
+    if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='La fecha desde no puede ser mayor que la fecha hasta.',
+        )
+
+    from_clause, where_clause, params = _construir_consulta_usuarios_admin(
+        q=q,
+        estado=estado,
+        tipo=tipo,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+
+    filas = db.execute(
+        text(
+            f"""
+            SELECT
+                u.id,
+                u.email,
+                u.first_name,
+                u.last_name,
+                u.phone,
+                u.is_company,
+                u.company_name,
+                u.active,
+                u.created_at,
+                u.points,
+                u.is_premium,
+                u.is_driver
+            {from_clause}
+            {where_clause}
+            ORDER BY u.created_at DESC
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    return [
+        UsuarioAdminExportOut(
+            id=str(fila['id']),
+            nombre_completo=' '.join(
+                parte
+                for parte in [
+                    str(fila.get('first_name') or '').strip(),
+                    str(fila.get('last_name') or '').strip(),
+                ]
+                if parte
+            )
+            or '-',
+            correo=str(fila.get('email') or ''),
+            telefono=_normalizar_texto(fila.get('phone')),
+            empresa=_normalizar_texto(fila.get('company_name')),
+            tipo=_obtener_tipo_usuario_exportacion(fila),
+            estado='Habilitado' if bool(fila.get('active')) else 'Inhabilitado',
+            puntos=_obtener_entero(fila.get('points')),
+            fecha_creacion=fila['created_at'],
+        )
+        for fila in filas
+    ]
 
 
 @router.get('/{usuario_id}', response_model=UsuarioAdminOut)
@@ -285,6 +453,7 @@ def crear_usuario_admin(
             )
 
     company_name = _normalizar_texto(payload.company_name) if payload.is_company else None
+    rol_id = _obtener_rol_admin_id(db) if payload.is_admin else None
 
     try:
         nuevo_id = db.execute(
@@ -303,6 +472,7 @@ def crear_usuario_admin(
                     referred_by_id,
                     is_premium,
                     is_driver,
+                    rol_id,
                     created_at
                 )
                 VALUES (
@@ -318,6 +488,7 @@ def crear_usuario_admin(
                     CAST(:referred_by_id AS uuid),
                     :is_premium,
                     :is_driver,
+                    :rol_id,
                     NOW()
                 )
                 RETURNING id
@@ -335,6 +506,7 @@ def crear_usuario_admin(
                 'referred_by_id': referred_by_id,
                 'is_premium': bool(payload.is_premium),
                 'is_driver': bool(payload.is_driver),
+                'rol_id': rol_id,
             },
         ).scalar()
         db.commit()
@@ -455,6 +627,9 @@ def actualizar_usuario_admin(
     if 'phone' in cambios:
         cambios['phone'] = _normalizar_texto(cambios['phone'])
 
+    if 'is_admin' in cambios:
+        cambios['rol_id'] = _obtener_rol_admin_id(db) if bool(cambios.pop('is_admin')) else None
+
     if 'referred_by_id' in cambios and cambios['referred_by_id'] is not None:
         referido_id = str(cambios['referred_by_id'])
         if referido_id == str(usuario_id):
@@ -496,6 +671,7 @@ def actualizar_usuario_admin(
         'active',
         'is_premium',
         'is_driver',
+        'rol_id',
         'referred_by_id',
         'password_hash',
     }
@@ -510,6 +686,11 @@ def actualizar_usuario_admin(
         if campo == 'referred_by_id':
             set_clauses.append('referred_by_id = CAST(:referred_by_id AS uuid)')
             params['referred_by_id'] = valor
+            continue
+
+        if campo == 'rol_id':
+            set_clauses.append('rol_id = :rol_id')
+            params['rol_id'] = valor
             continue
 
         set_clauses.append(f'{campo} = :{campo}')

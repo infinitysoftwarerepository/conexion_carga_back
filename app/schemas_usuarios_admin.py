@@ -24,6 +24,8 @@ class UsuarioAdminOut(BaseModel):
     points: int = 0
     is_premium: bool = False
     is_driver: bool = False
+    rol_id: Optional[int] = None
+    is_admin: bool = False
     referred_by_id: Optional[str] = None
     referred_by_email: Optional[str] = None
 
@@ -46,6 +48,7 @@ class CrearUsuarioAdminIn(BaseModel):
     company_name: Optional[str] = Field(default=None, max_length=255)
     is_premium: bool = False
     is_driver: bool = False
+    is_admin: bool = False
     active: bool = True
     referred_by_id: Optional[UUID] = None
 
@@ -61,6 +64,7 @@ class ActualizarUsuarioAdminIn(BaseModel):
     company_name: Optional[str] = Field(default=None, max_length=255)
     is_premium: Optional[bool] = None
     is_driver: Optional[bool] = None
+    is_admin: Optional[bool] = None
     active: Optional[bool] = None
     referred_by_id: Optional[UUID] = None
 
