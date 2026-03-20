@@ -131,6 +131,7 @@ def _render_register_page(ref: str | None) -> str:
             border-radius: 26px;
             padding: 32px 28px;
             box-shadow: var(--shadow);
+            text-align: center;
         }}
 
         .eyebrow {{
@@ -145,6 +146,7 @@ def _render_register_page(ref: str | None) -> str:
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.02em;
+            margin: 0 auto;
         }}
 
         .brand-mark {{
@@ -154,7 +156,7 @@ def _render_register_page(ref: str | None) -> str:
             overflow: hidden;
             display: grid;
             place-items: center;
-            margin-bottom: 18px;
+            margin: 0 auto 18px;
             background: #ffffff;
             border: 1px solid rgba(255, 120, 0, 0.12);
             box-shadow: 0 16px 34px rgba(23, 32, 51, 0.10);
@@ -171,12 +173,14 @@ def _render_register_page(ref: str | None) -> str:
             margin: 18px 0 12px;
             font-size: clamp(2rem, 4vw, 2.8rem);
             line-height: 1.08;
+            text-align: center;
         }}
 
         p {{
             margin: 0 0 14px;
             color: var(--muted);
             line-height: 1.7;
+            text-align: center;
         }}
 
         .chip {{
@@ -187,7 +191,7 @@ def _render_register_page(ref: str | None) -> str:
             border: 1px solid var(--line);
             border-radius: 14px;
             padding: 12px 14px;
-            margin: 6px 0 18px;
+            margin: 6px auto 18px;
             font-size: 14px;
         }}
 
@@ -196,6 +200,7 @@ def _render_register_page(ref: str | None) -> str:
             flex-wrap: wrap;
             gap: 12px;
             margin-top: 22px;
+            justify-content: center;
         }}
 
         .btn {{
@@ -207,9 +212,10 @@ def _render_register_page(ref: str | None) -> str:
             padding: 14px 18px;
             display: inline-flex;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             gap: 12px;
             transition: transform 0.18s ease, opacity 0.18s ease;
+            min-width: 290px;
         }}
 
         .btn:hover {{
@@ -230,6 +236,9 @@ def _render_register_page(ref: str | None) -> str:
         .small {{
             margin-top: 18px;
             font-size: 13px;
+            max-width: 560px;
+            margin-left: auto;
+            margin-right: auto;
         }}
 
         .btn-icon {{
@@ -300,6 +309,13 @@ def _render_register_page(ref: str | None) -> str:
             font-weight: 800;
             letter-spacing: 0.04em;
             box-shadow: inset 0 0 0 1px rgba(23, 32, 51, 0.08);
+        }}
+
+        @media (max-width: 720px) {{
+            .btn {{
+                width: 100%;
+                min-width: 0;
+            }}
         }}
     </style>
 </head>
