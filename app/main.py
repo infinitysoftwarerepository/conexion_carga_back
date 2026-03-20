@@ -18,6 +18,7 @@ from app.routers import (
     dashboard_admin,
     puntos_admin,
     public_pages,
+    referral_public,
     recaptcha,
     profile_me,
     viajes_admin,
@@ -58,6 +59,7 @@ app.include_router(auth.router)
 app.include_router(loads.router)
 app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_
 app.include_router(public_pages.router)  # 👈 pagina publica /privacidad en HTML
+app.include_router(referral_public.router)  # 👈 referral links publicos /register y assetlinks
 app.include_router(recaptcha.router)  # ✅ /recaptcha (checkbox "No soy un robot")
 app.include_router(profile_me.router)  # 👈 perfil autenticado web (add-only)
 app.include_router(dashboard_admin.router)  # 👈 endpoints admin dashboard (add-only)
