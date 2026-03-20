@@ -18,12 +18,11 @@ ANDROID_PACKAGE_NAME = "com.infinitysoftware.conexioncarga"
 ANDROID_STORE_URL = (
     "https://play.google.com/store/apps/details?id=com.infinitysoftware.conexioncarga"
 )
-APP_ICON_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "conexion_carga_app"
-    / "assets"
-    / "icons"
-    / "app_icon_V4.png"
+BRAND_LOGO_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "static"
+    / "branding"
+    / "logo-dark-full.png"
 )
 
 
@@ -45,11 +44,11 @@ def _construir_deep_link(ref: str | None) -> str:
 
 
 @lru_cache(maxsize=1)
-def _cargar_icono_app_data_url() -> str | None:
-    if not APP_ICON_PATH.exists():
+def _cargar_logo_data_url() -> str | None:
+    if not BRAND_LOGO_PATH.exists():
         return None
 
-    contenido = APP_ICON_PATH.read_bytes()
+    contenido = BRAND_LOGO_PATH.read_bytes()
     if not contenido:
         return None
 
@@ -61,20 +60,20 @@ def _render_register_page(ref: str | None) -> str:
     ref_normalizado = _normalizar_ref(ref)
     deep_link = html.escape(_construir_deep_link(ref_normalizado), quote=True)
     store_url = html.escape(ANDROID_STORE_URL, quote=True)
-    app_icon = _cargar_icono_app_data_url()
+    brand_logo = _cargar_logo_data_url()
     app_icon_html = ""
-    app_button_icon_html = '<span class="btn-icon btn-icon-app" aria-hidden="true">🚚</span>'
+    app_button_icon_html = '<span class="btn-icon btn-icon-app" aria-hidden="true">CC</span>'
     referido_html = ""
 
-    if app_icon:
+    if brand_logo:
         app_icon_html = f"""
             <div class="brand-mark">
-                <img src="{html.escape(app_icon, quote=True)}" alt="Conexión Carga" />
+                <img src="{html.escape(brand_logo, quote=True)}" alt="Conexión Carga" />
             </div>
         """
         app_button_icon_html = f"""
-            <span class="btn-icon">
-                <img src="{html.escape(app_icon, quote=True)}" alt="" />
+            <span class="btn-icon btn-icon-brand">
+                <img src="{html.escape(brand_logo, quote=True)}" alt="" />
             </span>
         """
 
@@ -149,9 +148,9 @@ def _render_register_page(ref: str | None) -> str:
         }}
 
         .brand-mark {{
-            width: 84px;
-            height: 84px;
-            border-radius: 26px;
+            width: min(100%, 240px);
+            min-height: 78px;
+            border-radius: 22px;
             overflow: hidden;
             display: grid;
             place-items: center;
@@ -163,9 +162,9 @@ def _render_register_page(ref: str | None) -> str:
 
         .brand-mark img {{
             display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+            width: 86%;
+            height: auto;
+            object-fit: contain;
         }}
 
         h1 {{
@@ -234,9 +233,9 @@ def _render_register_page(ref: str | None) -> str:
         }}
 
         .btn-icon {{
-            width: 24px;
-            height: 24px;
-            flex: 0 0 24px;
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -247,6 +246,32 @@ def _render_register_page(ref: str | None) -> str:
             width: 100%;
             height: 100%;
             display: block;
+        }}
+
+        .btn-icon-brand {{
+            width: 64px;
+            height: 36px;
+            flex: 0 0 64px;
+            padding: 6px 8px;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: inset 0 0 0 1px rgba(23, 32, 51, 0.08);
+        }}
+
+        .btn-icon-brand img {{
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }}
+
+        .btn-icon-store {{
+            width: 36px;
+            height: 36px;
+            flex: 0 0 36px;
+            padding: 6px;
+            border-radius: 12px;
+            background: #f5f7fb;
+            box-shadow: inset 0 0 0 1px rgba(23, 32, 51, 0.06);
         }}
 
         .btn-label {{
@@ -264,7 +289,17 @@ def _render_register_page(ref: str | None) -> str:
         }}
 
         .btn-icon-app {{
-            font-size: 18px;
+            width: 64px;
+            height: 36px;
+            flex: 0 0 64px;
+            padding: 6px 8px;
+            border-radius: 12px;
+            background: #ffffff;
+            color: var(--accent-strong);
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            box-shadow: inset 0 0 0 1px rgba(23, 32, 51, 0.08);
         }}
     </style>
 </head>
@@ -285,7 +320,7 @@ def _render_register_page(ref: str | None) -> str:
                 </span>
             </a>
             <a class="btn btn-secondary" href="{store_url}">
-                <span class="btn-icon" aria-hidden="true">
+                <span class="btn-icon btn-icon-store" aria-hidden="true">
                     <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img">
                         <path fill="#EA4335" d="M8 6l22.8 18L8 42z"/>
                         <path fill="#FBBC04" d="M30.8 24l5.8-4.6c2.7-2.1 2.7-4.7 0-6.8L30.8 8z"/>
