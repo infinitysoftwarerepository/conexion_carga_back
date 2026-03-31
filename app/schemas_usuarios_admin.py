@@ -16,6 +16,7 @@ class UsuarioAdminOut(BaseModel):
     email: str
     first_name: str
     last_name: str
+    document: Optional[str] = None
     phone: Optional[str] = None
     is_company: bool = False
     company_name: Optional[str] = None
@@ -41,7 +42,10 @@ class CrearUsuarioAdminIn(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
     email: EmailStr
+    document: Optional[str] = Field(default=None, max_length=80)
     phone: Optional[str] = Field(default=None, max_length=30)
+    phone_code: Optional[str] = Field(default=None, max_length=10)
+    phone_number: Optional[str] = Field(default=None, max_length=20)
     password: str = Field(min_length=8, max_length=128)
     confirm_password: Optional[str] = Field(default=None, max_length=128)
     is_company: bool = False
@@ -57,7 +61,10 @@ class ActualizarUsuarioAdminIn(BaseModel):
     first_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     last_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     email: Optional[EmailStr] = None
+    document: Optional[str] = Field(default=None, max_length=80)
     phone: Optional[str] = Field(default=None, max_length=30)
+    phone_code: Optional[str] = Field(default=None, max_length=10)
+    phone_number: Optional[str] = Field(default=None, max_length=20)
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     confirm_password: Optional[str] = Field(default=None, max_length=128)
     is_company: Optional[bool] = None

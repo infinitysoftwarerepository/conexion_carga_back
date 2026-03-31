@@ -148,6 +148,7 @@ def _serializar_usuario_admin(user) -> dict:
         "email": user.email,
         "first_name": user.first_name,
         "last_name": user.last_name,
+        "document": getattr(user, 'document', None),
         "phone": user.phone,
         "is_company": bool(user.is_company),
         "company_name": user.company_name,

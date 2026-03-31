@@ -19,6 +19,7 @@ from app.schemas_puntos_admin import (
     UsuarioPuntosAdminOut,
     UsuarioReferidoAdminOut,
 )
+from app.utils.user_contact import split_stored_document_and_phone
 
 router = APIRouter(prefix='/api/admin/puntos', tags=['Admin Puntos'])
 
@@ -42,12 +43,15 @@ def _obtener_entero(valor: object) -> int:
 
 
 def _serializar_usuario_puntos(row) -> UsuarioPuntosAdminOut:
+    document, phone = split_stored_document_and_phone(row.get('document'), row.get('phone'))
+
     return UsuarioPuntosAdminOut(
         id=str(row['id']),
         email=str(row['email']),
         first_name=str(row['first_name']),
         last_name=str(row['last_name']),
-        phone=_normalizar_texto(row.get('phone')),
+        document=document,
+        phone=phone,
         company_name=_normalizar_texto(row.get('company_name')),
         active=bool(row.get('active')),
         created_at=row['created_at'],
@@ -57,12 +61,15 @@ def _serializar_usuario_puntos(row) -> UsuarioPuntosAdminOut:
 
 
 def _serializar_usuario_referido(row) -> UsuarioReferidoAdminOut:
+    document, phone = split_stored_document_and_phone(row.get('document'), row.get('phone'))
+
     return UsuarioReferidoAdminOut(
         id=str(row['id']),
         email=str(row['email']),
         first_name=str(row['first_name']),
         last_name=str(row['last_name']),
-        phone=_normalizar_texto(row.get('phone')),
+        document=document,
+        phone=phone,
         company_name=_normalizar_texto(row.get('company_name')),
         active=bool(row.get('active')),
         created_at=row['created_at'],
@@ -78,6 +85,7 @@ def _obtener_usuario_por_id(db: Session, user_id: UUID | str):
                 u.email,
                 u.first_name,
                 u.last_name,
+                u.document,
                 u.phone,
                 u.company_name,
                 u.active,
@@ -182,6 +190,7 @@ def obtener_ranking_puntos(
                 COALESCE(u.email, '') ILIKE :q_like
                 OR COALESCE(u.first_name, '') ILIKE :q_like
                 OR COALESCE(u.last_name, '') ILIKE :q_like
+                OR COALESCE(u.document, '') ILIKE :q_like
                 OR COALESCE(u.phone, '') ILIKE :q_like
                 OR COALESCE(u.company_name, '') ILIKE :q_like
                 OR COALESCE(u.first_name || ' ' || u.last_name, '') ILIKE :q_like
@@ -211,6 +220,7 @@ def obtener_ranking_puntos(
                 u.email,
                 u.first_name,
                 u.last_name,
+                u.document,
                 u.phone,
                 u.company_name,
                 u.active,
@@ -265,6 +275,7 @@ def obtener_referidos_usuario(
                 u.email,
                 u.first_name,
                 u.last_name,
+                u.document,
                 u.phone,
                 u.company_name,
                 u.active,

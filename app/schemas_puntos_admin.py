@@ -11,6 +11,7 @@ class UsuarioPuntosAdminOut(BaseModel):
     email: str
     first_name: str
     last_name: str
+    document: Optional[str] = None
     phone: Optional[str] = None
     company_name: Optional[str] = None
     active: bool = True
@@ -41,6 +42,7 @@ class UsuarioReferidoAdminOut(BaseModel):
     email: str
     first_name: str
     last_name: str
+    document: Optional[str] = None
     phone: Optional[str] = None
     company_name: Optional[str] = None
     active: bool = True

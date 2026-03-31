@@ -17,6 +17,7 @@ from app.schemas_profile import (
     PerfilActualOut,
 )
 from app.security import get_current_user, get_password_hash, verify_password
+from app.utils.user_contact import resolve_document_and_phone, split_stored_document_and_phone
 
 router = APIRouter(prefix='/api/me/profile', tags=['Mi Perfil'])
 
@@ -161,6 +162,7 @@ def _obtener_perfil_actual(db: Session, user_id: str) -> PerfilActualOut:
                 u.last_name,
                 TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) AS full_name,
                 u.email,
+                u.document,
                 u.phone,
                 u.is_company,
                 u.company_name,
@@ -181,6 +183,7 @@ def _obtener_perfil_actual(db: Session, user_id: str) -> PerfilActualOut:
     foto = _normalizar_texto(row.get('foto'))
     company_name = _normalizar_texto(row.get('company_name'))
     is_company = bool(row.get('is_company'))
+    document, phone = split_stored_document_and_phone(row.get('document'), row.get('phone'))
 
     return PerfilActualOut(
         id=str(row['id']),
@@ -188,7 +191,8 @@ def _obtener_perfil_actual(db: Session, user_id: str) -> PerfilActualOut:
         last_name=str(row.get('last_name') or '').strip(),
         full_name=str(row.get('full_name') or '').strip(),
         email=str(row.get('email') or '').strip(),
-        phone=_normalizar_texto(row.get('phone')),
+        document=document,
+        phone=phone,
         is_company=is_company,
         company_name=company_name if is_company else None,
         active=bool(row.get('active')),
@@ -221,9 +225,37 @@ def actualizar_mi_perfil(
     if not last_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Los apellidos son obligatorios.')
 
+    try:
+        document, phone = resolve_document_and_phone(
+            document=payload.document,
+            phone=payload.phone,
+            phone_code=payload.phone_code,
+            phone_number=payload.phone_number,
+            require_document=False,
+            require_phone=False,
+            allow_legacy_document_from_phone=payload.phone is not None and payload.document is None,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if document is None and payload.document is None:
+        document = _normalizar_texto(getattr(current, 'document', None), 80)
+
+    if (
+        phone is None
+        and payload.phone is None
+        and payload.phone_code is None
+        and payload.phone_number is None
+    ):
+        phone = _normalizar_texto(getattr(current, 'phone', None), 30)
+
     current.first_name = first_name
     current.last_name = last_name
-    current.phone = _normalizar_texto(payload.phone, 30)
+    current.document = document
+    current.phone = phone
     current.company_name = (
         _normalizar_texto(payload.company_name, 255)
         if bool(current.is_company)

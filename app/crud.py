@@ -92,6 +92,7 @@ def create_user(
         email=user_in.email.strip(),
         first_name=user_in.first_name,
         last_name=user_in.last_name,
+        document=user_in.document,
         phone=user_in.phone,
         is_company=user_in.is_company,
         company_name=user_in.company_name if user_in.is_company else None,
@@ -112,7 +113,7 @@ def update_user(
     u = get_user(db, user_id)
     if not u:
         return None
-    for attr in ("email", "first_name", "last_name", "phone", "is_company", "company_name","is_driver"):
+    for attr in ("email", "first_name", "last_name", "document", "phone", "is_company", "company_name", "is_driver"):
         val = getattr(user_in, attr, None)
         if val is not None:
             setattr(u, attr, val)

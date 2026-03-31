@@ -11,6 +11,7 @@ class PerfilActualOut(BaseModel):
     last_name: str
     full_name: str
     email: EmailStr
+    document: str | None = None
     phone: str | None = None
     is_company: bool = False
     company_name: str | None = None
@@ -23,7 +24,10 @@ class PerfilActualOut(BaseModel):
 class ActualizarPerfilIn(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
+    document: str | None = Field(default=None, max_length=80)
     phone: str | None = Field(default=None, max_length=30)
+    phone_code: str | None = Field(default=None, max_length=10)
+    phone_number: str | None = Field(default=None, max_length=20)
     company_name: str | None = Field(default=None, max_length=255)
 
 

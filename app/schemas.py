@@ -13,7 +13,10 @@ class UserBase(BaseModel):
     email: EmailStr
     first_name: str = Field(min_length=1)
     last_name: str = Field(min_length=1)
-    phone: Optional[str] = None
+    document: Optional[str] = Field(default=None, max_length=80)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    phone_code: Optional[str] = Field(default=None, max_length=10)
+    phone_number: Optional[str] = Field(default=None, max_length=20)
     is_company: bool = False
     company_name: Optional[str] = None
     is_driver: bool = False
@@ -29,10 +32,13 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    phone: Optional[str] = None
+    document: Optional[str] = Field(default=None, max_length=80)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    phone_code: Optional[str] = Field(default=None, max_length=10)
+    phone_number: Optional[str] = Field(default=None, max_length=20)
     is_company: Optional[bool] = None
     company_name: Optional[str] = None
-    is_driver: Optional[bool] = None 
+    is_driver: Optional[bool] = None
     password: Optional[str] = None
 
 
@@ -81,18 +87,12 @@ class CargoBase(BaseModel):
     peso: float
     valor: int
     empresa: Optional[str] = None
-    # extras
     comercial: Optional[str] = None
     contacto: Optional[str] = None
     observaciones: Optional[str] = None
     conductor: Optional[str] = None
-    # vehiculo_id: Optional[str] = None  # ❌ eliminado
     tipo_vehiculo: Optional[str] = None
-
-    # 🟢 nuevo: reflejar premium_trip igual que en el modelo
     premium_trip: bool = False
-
-    # duración en horas (frontend habla en horas, backend guarda interval)
     duration_hours: int = Field(default=24, ge=1, le=168)
 
 
@@ -114,7 +114,7 @@ class CargoUpdate(BaseModel):
     conductor: Optional[str] = None
     tipo_vehiculo: Optional[str] = None
     duration_hours: Optional[int] = Field(default=None, ge=1, le=168)
-    premium_trip: Optional[bool] = None  # 🟢 por si luego quieres editar esto
+    premium_trip: Optional[bool] = None
 
 
 class CargoOut(CargoBase):
@@ -144,3 +144,11 @@ class CatalogoOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CountryCodeOut(BaseModel):
+    id: int
+    name: str
+    iso2: str
+    phone_code: str
+    flag_emoji: str

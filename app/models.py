@@ -32,6 +32,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     first_name = Column(String(120), nullable=False)
     last_name = Column(String(120), nullable=False)
+    document = Column(String(80), nullable=True)
     phone = Column(String(30), nullable=True)
 
     is_company = Column(Boolean, nullable=False, server_default=text("false"))
