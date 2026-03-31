@@ -10,7 +10,8 @@ class UsuarioAdminExportOut(BaseModel):
     id: str
     nombre_completo: str
     correo: str
-    telefono: Optional[str] = None
+    documento: Optional[str] = None
+    numero_whatsapp: Optional[str] = None
     empresa: Optional[str] = None
     tipo: str
     estado: str

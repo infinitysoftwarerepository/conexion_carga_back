@@ -24,6 +24,7 @@ from app.schemas_usuarios_admin import (
     UsuarioAdminOut,
 )
 from app.security import get_password_hash
+from app.utils.user_contact import resolve_document_and_phone, split_stored_document_and_phone
 
 router = APIRouter(prefix='/api/admin/usuarios', tags=['Admin Usuarios'])
 ROL_ADMINISTRADOR_NOMBRE = 'Administrador'
@@ -74,6 +75,58 @@ def _obtener_rol_admin_id(db: Session) -> int:
     return int(rol_id)
 
 
+
+def _resolver_documento_y_whatsapp(
+    *,
+    document: object = None,
+    phone: object = None,
+    phone_code: object = None,
+    phone_number: object = None,
+    current_document: object = None,
+    current_phone: object = None,
+    require_document: bool = False,
+    require_phone: bool = False,
+) -> tuple[str | None, str | None]:
+    documento_proporcionado = document is not None
+    phone_proporcionado = phone is not None
+    phone_code_proporcionado = phone_code is not None
+    phone_number_proporcionado = phone_number is not None
+
+    if not any(
+        [
+            documento_proporcionado,
+            phone_proporcionado,
+            phone_code_proporcionado,
+            phone_number_proporcionado,
+        ]
+    ):
+        return _normalizar_texto(current_document), _normalizar_texto(current_phone)
+
+    try:
+        documento_resuelto, phone_resuelto = resolve_document_and_phone(
+            document=document if documento_proporcionado else None,
+            phone=phone if phone_proporcionado else None,
+            phone_code=phone_code if phone_code_proporcionado else None,
+            phone_number=phone_number if phone_number_proporcionado else None,
+            require_document=require_document,
+            require_phone=require_phone,
+            allow_legacy_document_from_phone=phone_proporcionado and not documento_proporcionado,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if documento_resuelto is None and not documento_proporcionado:
+        documento_resuelto = _normalizar_texto(current_document)
+
+    if phone_resuelto is None and not any([phone_proporcionado, phone_code_proporcionado, phone_number_proporcionado]):
+        phone_resuelto = _normalizar_texto(current_phone)
+
+    return documento_resuelto, phone_resuelto
+
+
 def _obtener_usuario_por_id(db: Session, usuario_id: UUID | str):
     return db.execute(
         text(
@@ -83,6 +136,7 @@ def _obtener_usuario_por_id(db: Session, usuario_id: UUID | str):
                 u.email,
                 u.first_name,
                 u.last_name,
+                u.document,
                 u.phone,
                 u.is_company,
                 u.company_name,
@@ -109,12 +163,18 @@ def _obtener_usuario_por_id(db: Session, usuario_id: UUID | str):
 
 
 def _serializar_usuario(row) -> UsuarioAdminOut:
+    document, phone = split_stored_document_and_phone(
+        row.get('document'),
+        row.get('phone'),
+    )
+
     return UsuarioAdminOut(
         id=str(row['id']),
         email=str(row['email']),
         first_name=str(row['first_name']),
         last_name=str(row['last_name']),
-        phone=_normalizar_texto(row.get('phone')),
+        document=document,
+        phone=phone,
         is_company=bool(row.get('is_company')),
         company_name=_normalizar_texto(row.get('company_name')),
         active=bool(row.get('active')),
@@ -166,6 +226,7 @@ def _construir_consulta_usuarios_admin(
                 COALESCE(u.email, '') ILIKE :q_like
                 OR COALESCE(u.first_name, '') ILIKE :q_like
                 OR COALESCE(u.last_name, '') ILIKE :q_like
+                OR COALESCE(u.document, '') ILIKE :q_like
                 OR COALESCE(u.phone, '') ILIKE :q_like
                 OR COALESCE(u.company_name, '') ILIKE :q_like
                 OR COALESCE(u.first_name || ' ' || u.last_name, '') ILIKE :q_like
@@ -271,6 +332,7 @@ def obtener_usuarios_admin(
                 u.email,
                 u.first_name,
                 u.last_name,
+                u.document,
                 u.phone,
                 u.is_company,
                 u.company_name,
@@ -339,6 +401,7 @@ def exportar_usuarios_admin(
                 u.email,
                 u.first_name,
                 u.last_name,
+                u.document,
                 u.phone,
                 u.is_company,
                 u.company_name,
@@ -368,7 +431,8 @@ def exportar_usuarios_admin(
             )
             or '-',
             correo=str(fila.get('email') or ''),
-            telefono=_normalizar_texto(fila.get('phone')),
+            documento=split_stored_document_and_phone(fila.get('document'), fila.get('phone'))[0],
+            numero_whatsapp=split_stored_document_and_phone(fila.get('document'), fila.get('phone'))[1],
             empresa=_normalizar_texto(fila.get('company_name')),
             tipo=_obtener_tipo_usuario_exportacion(fila),
             estado='Habilitado' if bool(fila.get('active')) else 'Inhabilitado',
@@ -454,6 +518,14 @@ def crear_usuario_admin(
 
     company_name = _normalizar_texto(payload.company_name) if payload.is_company else None
     rol_id = _obtener_rol_admin_id(db) if payload.is_admin else None
+    document, phone = _resolver_documento_y_whatsapp(
+        document=payload.document,
+        phone=payload.phone,
+        phone_code=payload.phone_code,
+        phone_number=payload.phone_number,
+        require_document=True,
+        require_phone=True,
+    )
 
     try:
         nuevo_id = db.execute(
@@ -464,6 +536,7 @@ def crear_usuario_admin(
                     password_hash,
                     first_name,
                     last_name,
+                    document,
                     phone,
                     is_company,
                     company_name,
@@ -480,6 +553,7 @@ def crear_usuario_admin(
                     :password_hash,
                     :first_name,
                     :last_name,
+                    :document,
                     :phone,
                     :is_company,
                     :company_name,
@@ -499,7 +573,8 @@ def crear_usuario_admin(
                 'password_hash': get_password_hash(payload.password),
                 'first_name': str(payload.first_name).strip(),
                 'last_name': str(payload.last_name).strip(),
-                'phone': _normalizar_texto(payload.phone),
+                'document': document,
+                'phone': phone,
                 'is_company': bool(payload.is_company),
                 'company_name': company_name,
                 'active': bool(payload.active),
@@ -624,8 +699,22 @@ def actualizar_usuario_admin(
     elif 'company_name' in cambios:
         cambios['company_name'] = _normalizar_texto(cambios['company_name'])
 
-    if 'phone' in cambios:
-        cambios['phone'] = _normalizar_texto(cambios['phone'])
+    if any(campo in cambios for campo in ('document', 'phone', 'phone_code', 'phone_number')):
+        document, phone = _resolver_documento_y_whatsapp(
+            document=cambios.get('document'),
+            phone=cambios.get('phone'),
+            phone_code=cambios.get('phone_code'),
+            phone_number=cambios.get('phone_number'),
+            current_document=actual.get('document'),
+            current_phone=actual.get('phone'),
+            require_document=False,
+            require_phone=False,
+        )
+        cambios['document'] = document
+        cambios['phone'] = phone
+
+    cambios.pop('phone_code', None)
+    cambios.pop('phone_number', None)
 
     if 'is_admin' in cambios:
         cambios['rol_id'] = _obtener_rol_admin_id(db) if bool(cambios.pop('is_admin')) else None
@@ -665,6 +754,7 @@ def actualizar_usuario_admin(
         'email',
         'first_name',
         'last_name',
+        'document',
         'phone',
         'is_company',
         'company_name',

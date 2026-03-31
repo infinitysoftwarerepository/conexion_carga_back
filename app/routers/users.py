@@ -9,25 +9,23 @@ Rutas de usuarios:
 """
 
 from __future__ import annotations
+
+from datetime import datetime
 from typing import Dict
 from uuid import UUID
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app import crud, schemas, models
+from app import crud, models, schemas
 from app.db import get_db
-from app.security import get_password_hash, get_current_user
+from app.security import get_current_user, get_password_hash
 from app.services.emailer import send_email
+from app.utils.user_contact import resolve_document_and_phone
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
-
-# ==========================
-#   Esquemas internos
-# ==========================
 
 class ReloadCodeIn(BaseModel):
     email: EmailStr
@@ -38,18 +36,75 @@ class VerifyCodeIn(BaseModel):
     code: str = Field(min_length=1, max_length=64)
 
 
-# ==========================
-#   Listado de usuarios
-# ==========================
+def _resolve_user_contact_for_register(user: schemas.UserCreate) -> schemas.UserCreate:
+    data = user.model_dump()
+
+    try:
+        document, phone = resolve_document_and_phone(
+            document=user.document,
+            phone=user.phone,
+            phone_code=user.phone_code,
+            phone_number=user.phone_number,
+            require_document=True,
+            require_phone=False,
+            allow_legacy_document_from_phone=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    data['document'] = document
+    data['phone'] = phone
+    data.pop('phone_code', None)
+    data.pop('phone_number', None)
+    return schemas.UserCreate(**data)
+
+
+def _resolve_user_contact_for_update(
+    current_user: models.User,
+    user: schemas.UserUpdate,
+) -> schemas.UserUpdate:
+    data = user.model_dump(exclude_unset=True)
+    if not any(
+        campo in data for campo in ('document', 'phone', 'phone_code', 'phone_number')
+    ):
+        return user
+
+    try:
+        document, phone = resolve_document_and_phone(
+            document=data.get('document') if 'document' in data else None,
+            phone=data.get('phone') if 'phone' in data else None,
+            phone_code=data.get('phone_code') if 'phone_code' in data else None,
+            phone_number=data.get('phone_number') if 'phone_number' in data else None,
+            require_document=False,
+            require_phone=False,
+            allow_legacy_document_from_phone='phone' in data and 'document' not in data,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if 'document' not in data and document is None:
+        document = getattr(current_user, 'document', None)
+
+    if not any(campo in data for campo in ('phone', 'phone_code', 'phone_number')):
+        phone = getattr(current_user, 'phone', None)
+
+    data['document'] = document
+    data['phone'] = phone
+    data.pop('phone_code', None)
+    data.pop('phone_number', None)
+    return schemas.UserUpdate(**data)
+
 
 @router.get("", response_model=list[schemas.UserOut])
 def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return crud.get_users(db, skip=skip, limit=limit)
 
-
-# ==========================
-#   Registro de usuario
-# ==========================
 
 @router.post(
     "/register",
@@ -57,16 +112,15 @@ def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
 )
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # 1) Email duplicado
+    user = _resolve_user_contact_for_register(user)
+
     existing = crud.get_user_by_email(db, user.email)
     if existing:
         raise HTTPException(status_code=400, detail="Correo ya registrado")
 
-    # 2) Validar contraseñas iguales
     if user.password != user.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    # 3) Resolver referidor (opcional)
     ref_id = None
     if user.referrer_email:
         ref = crud.get_user_by_email(db, str(user.referrer_email))
@@ -74,7 +128,6 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Referrer email does not exist")
         ref_id = ref.id
 
-    # 4) Crear usuario con hash y referidor
     pw_hash = get_password_hash(user.password)
     created = crud.create_user(db, user, pw_hash, referred_by_id=ref_id)
     created.active = False
@@ -82,10 +135,8 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(created)
 
-    # 5) Crear código de verificación en BD
     code = crud.create_verification_code(db, created)
 
-    # 6) Enviar email (reutilizamos send_email)
     subject = "Código de verificación - Conexión Carga"
     text = (
         f"Hola {created.first_name},\n\n"
@@ -111,10 +162,6 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return created
 
 
-# ==========================
-#   Reenviar código
-# ==========================
-
 @router.post("/reload-code", summary="Reenviar código de verificación")
 def reload_code(
     payload: ReloadCodeIn,
@@ -124,7 +171,6 @@ def reload_code(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    # Genera nuevo código en BD (invalida los anteriores)
     code = crud.create_verification_code(db, user)
 
     subject = "Nuevo código de verificación - Conexión Carga"
@@ -152,10 +198,6 @@ def reload_code(
     return {"detail": "Nuevo código enviado al correo"}
 
 
-# ==========================
-#   Verificar email
-# ==========================
-
 @router.post("/verify", summary="Validar código de verificación")
 def verify_user(
     payload: VerifyCodeIn,
@@ -181,12 +223,10 @@ def verify_user(
     if verif.expires_at < datetime.utcnow():
         raise HTTPException(status_code=400, detail="El código ha expirado")
 
-    # marcar código como usado y activar usuario
     verif.used = True
     was_active = bool(user.active)
     user.active = True
 
-    # premiar referidor si aplica y aún no fue premiado
     if not was_active and user.referred_by_id and not getattr(user, "referral_rewarded", False):
         ref = db.query(models.User).get(user.referred_by_id)
         if ref:
@@ -205,30 +245,28 @@ def verify_user(
     }
 
 
-# ==========================
-#   Perfil actual
-# ==========================
-
 @router.get("/me", response_model=schemas.UserOut)
 def get_me(current: schemas.UserOut = Depends(get_current_user)):
-    """Devuelve el perfil del usuario autenticado (token Bearer)."""
     return current
 
 
-# ==========================
-#   Actualizar usuario
-# ==========================
-
 @router.put("/{user_id}", response_model=schemas.UserOut)
 def update_user(user_id: UUID, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+    current = crud.get_user(db, user_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="User not found")
+
     if user.email:
         existing = crud.get_user_by_email(db, user.email)
         if existing and existing.id != user_id:
             raise HTTPException(status_code=400, detail="Correo en uso")
+
+    user = _resolve_user_contact_for_update(current, user)
     updated = crud.update_user(db, user_id, user)
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
     return updated
+
 
 @router.get("/leaderboard")
 def leaderboard(db: Session = Depends(get_db)):
@@ -244,18 +282,17 @@ def leaderboard(db: Session = Depends(get_db)):
             db.query(models.User)
             .filter(
                 models.User.referred_by_id == u.id,
-                models.User.active == True   # Solo cuenta referidos ACTIVOS
+                models.User.active == True,
             )
             .count()
         )
 
         rows.append({
             "email": u.email,
+            "document": getattr(u, 'document', None),
             "phone": u.phone,
             "points": pts,
         })
 
-    # ordenar por puntos desc
     rows.sort(key=lambda x: x["points"], reverse=True)
-
     return rows
