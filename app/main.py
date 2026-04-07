@@ -15,6 +15,7 @@ from app.routers import (
     auth,
     loads,
     catalogos,
+    app_version_policy,
     dashboard_admin,
     puntos_admin,
     public_pages,
@@ -58,6 +59,7 @@ app.include_router(users.router)
 app.include_router(auth.router)
 app.include_router(loads.router)
 app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_
+app.include_router(app_version_policy.router)  # 👈 política de versión app (add-only)
 app.include_router(public_pages.router)  # 👈 pagina publica /privacidad en HTML
 app.include_router(referral_public.router)  # 👈 referral links publicos /register y assetlinks
 app.include_router(recaptcha.router)  # ✅ /recaptcha (checkbox "No soy un robot")
