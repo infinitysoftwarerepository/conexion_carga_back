@@ -178,6 +178,12 @@ def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):
             detail="Credenciales inválidas.",
         )
 
+    if not user.active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuario inactivo. No puede acceder a la aplicación.",
+        )
+
     token = create_access_token({"sub": str(user.id)})
     user_out = schemas.UserOut.model_validate(user)
 
@@ -207,6 +213,12 @@ def login_form(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales inválidas.",
+        )
+
+    if not user.active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuario inactivo. No puede acceder a la aplicación.",
         )
 
     token = create_access_token({"sub": str(user.id)})

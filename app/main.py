@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from app.db import Base, engine
 from app.routers import (
     users,
+    account_deletion,
     auth,
     loads,
     catalogos,
@@ -56,6 +57,7 @@ def health():
 
 # Montar routers
 app.include_router(users.router)
+app.include_router(account_deletion.router)
 app.include_router(auth.router)
 app.include_router(loads.router)
 app.include_router(catalogos.router)  # 👈 agregado para municipios, tipo_

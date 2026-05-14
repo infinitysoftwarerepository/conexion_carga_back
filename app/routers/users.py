@@ -250,6 +250,28 @@ def get_me(current: schemas.UserOut = Depends(get_current_user)):
     return current
 
 
+@router.put("/me", response_model=schemas.UserOut)
+def update_me(
+    user: schemas.UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    current = crud.get_user(db, current_user.id)
+    if not current:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.email:
+        existing = crud.get_user_by_email(db, user.email)
+        if existing and existing.id != current.id:
+            raise HTTPException(status_code=400, detail="Correo en uso")
+
+    user = _resolve_user_contact_for_update(current, user)
+    updated = crud.update_user(db, current.id, user)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated
+
+
 @router.put("/{user_id}", response_model=schemas.UserOut)
 def update_user(user_id: UUID, user: schemas.UserUpdate, db: Session = Depends(get_db)):
     current = crud.get_user(db, user_id)

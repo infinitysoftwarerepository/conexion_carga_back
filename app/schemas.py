@@ -76,6 +76,16 @@ class TokenOut(BaseModel):
     user: Optional[UserOut] = None
 
 
+class AccountDeletionRequest(BaseModel):
+    user_id: UUID
+    email: EmailStr
+    motivo: str = Field(min_length=10, max_length=200)
+
+
+class AccountDeletionOut(BaseModel):
+    success: bool
+
+
 # ========= CARGA =========
 
 
